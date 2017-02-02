@@ -11,6 +11,7 @@ import sys
 import time
 import json
 import argparse
+from tqdm import tqdm
 
 import numpy as np
 import tensorflow as tf
@@ -20,13 +21,14 @@ import pixel_cnn_pp.plotting as plotting
 from pixel_cnn_pp.model import model_spec
 import data.cifar10_data as cifar10_data
 import data.imagenet_data as imagenet_data
+import data.letters_data as letters_data
 
 # -----------------------------------------------------------------------------
 parser = argparse.ArgumentParser()
 # data I/O
 parser.add_argument('-i', '--data_dir', type=str, default='/tmp/pxpp/data', help='Location for the dataset')
 parser.add_argument('-o', '--save_dir', type=str, default='/tmp/pxpp/save', help='Location for parameter checkpoints and samples')
-parser.add_argument('-d', '--data_set', type=str, default='cifar', help='Can be either cifar|imagenet')
+parser.add_argument('-d', '--data_set', type=str, default='cifar', help='Can be either cifar|imagenet|letters')
 parser.add_argument('-t', '--save_interval', type=int, default=20, help='Every how many epochs to write checkpoint/samples?')
 parser.add_argument('-r', '--load_params', dest='load_params', action='store_true', help='Restore training from previous model checkpoint?')
 # model
@@ -58,7 +60,7 @@ tf.set_random_seed(args.seed)
 # initialize data loaders for train/test splits
 if args.data_set == 'imagenet' and args.class_conditional:
     raise("We currently don't have labels for the small imagenet data set")
-DataLoader = {'cifar':cifar10_data.DataLoader, 'imagenet':imagenet_data.DataLoader}[args.data_set]
+DataLoader = {'cifar':cifar10_data.DataLoader, 'imagenet':imagenet_data.DataLoader, 'letters':letters_data.DataLoader}[args.data_set]
 train_data = DataLoader(args.data_dir, 'train', args.batch_size * args.nr_gpu, rng=rng, shuffle=True, return_labels=args.class_conditional)
 test_data = DataLoader(args.data_dir, 'test', args.batch_size * args.nr_gpu, shuffle=False, return_labels=args.class_conditional)
 obs_shape = train_data.get_observation_size() # e.g. a tuple (32,32,3)
@@ -131,6 +133,7 @@ for i in range(args.nr_gpu):
         gen_par = model(xs[i], h_sample[i], ema=ema, dropout_p=0, **model_opt)
         new_x_gen.append(nn.sample_from_discretized_mix_logistic(gen_par, args.nr_logistic_mix))
 def sample_from_model(sess):
+#    x_gen = [np.zeros((args.batch_size,) + obs_shape, dtype=np.float32) for i in range(args.nr_gpu)]
     x_gen = [np.zeros((args.batch_size,) + obs_shape, dtype=np.float32) for i in range(args.nr_gpu)]
     for yi in range(obs_shape[0]):
         for xi in range(obs_shape[1]):
@@ -186,7 +189,7 @@ with tf.Session() as sess:
 
         # train for one epoch
         train_losses = []
-        for d in train_data:
+        for d in tqdm(train_data):
             feed_dict = make_feed_dict(d)
             # forward/backward/update model on each gpu
             lr *= args.lr_decay
