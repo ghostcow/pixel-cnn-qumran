@@ -152,12 +152,14 @@ saver = tf.train.Saver()
 def make_feed_dict(data, init=False):
     if type(data) is tuple and len(data)==2:
         x,m = data
-    if type(data) is tuple and len(data)==3:
+        y = None
+    elif type(data) is tuple and len(data)==3:
         x,y,m = data
     else:
         x = data
         y = None
     x = np.cast[np.float32]((x - 127.5) / 127.5) # input to pixelCNN is scaled from uint8 [0,255] to float in range [-1,1]
+    m = m / 255 # temp fix, this needs to be done at data creation.
     if init:
         feed_dict = {x_init: x}
         if y is not None:
