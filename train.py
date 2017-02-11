@@ -132,14 +132,16 @@ for i in range(args.nr_gpu):
     with tf.device('/gpu:%d' % i):
         gen_par = model(xs[i], h_sample[i], ema=ema, dropout_p=0, **model_opt)
         new_x_gen.append(nn.sample_from_discretized_mix_logistic(gen_par, args.nr_logistic_mix))
-def sample_from_model(sess):
-#    x_gen = [np.zeros((args.batch_size,) + obs_shape, dtype=np.float32) for i in range(args.nr_gpu)]
-    x_gen = [np.zeros((args.batch_size,) + obs_shape, dtype=np.float32) for i in range(args.nr_gpu)]
+def sample_from_model(sess, data):
+    x_gen, masks = data
+    x_gen = np.split(x_gen, args.nr_gpu)
+    masks = np.split(masks, args.nr_gpu)
     for yi in range(obs_shape[0]):
         for xi in range(obs_shape[1]):
             new_x_gen_np = sess.run(new_x_gen, {xs[i]: x_gen[i] for i in range(args.nr_gpu)})
             for i in range(args.nr_gpu):
-                x_gen[i][:,yi,xi,:] = new_x_gen_np[i][:,yi,xi,:]
+#                x_gen[i][:,yi,xi,:] = new_x_gen_np[i][:,yi,xi,:]
+                x_gen[i][:,yi,xi,:] = new_x_gen_np[i][:,yi,xi,:]*(1-masks[:,yi,xi,:])+x_gen[i][:,yi,xi,:]*masks[:,yi,xi,:]
     return np.concatenate(x_gen, axis=0)
 
 # init & save
@@ -148,8 +150,10 @@ saver = tf.train.Saver()
 
 # turn numpy inputs into feed_dict for use with tensorflow
 def make_feed_dict(data, init=False):
-    if type(data) is tuple:
-        x,y = data
+    if type(data) is tuple and len(data)==2:
+        x,m = data
+    if type(data) is tuple and len(data)==3:
+        x,y,m = data
     else:
         x = data
         y = None
@@ -214,7 +218,9 @@ with tf.Session() as sess:
         if epoch % args.save_interval == 0:
 
             # generate samples from the model
-            sample_x = sample_from_model(sess)
+            for d in test_data:
+                sample_x = sample_from_model(sess, d)
+                break
             img_tile = plotting.img_tile(sample_x[:int(np.floor(np.sqrt(args.batch_size*args.nr_gpu))**2)], aspect_ratio=1.0, border_color=1.0, stretch=True)
             img = plotting.plot_img(img_tile, title=args.data_set + ' samples')
             plotting.plt.savefig(os.path.join(args.save_dir,'%s_sample%d.png' % (args.data_set, epoch)))

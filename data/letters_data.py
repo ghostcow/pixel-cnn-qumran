@@ -13,15 +13,15 @@ def unpickle(file):
         import cPickle
         d = cPickle.load(fo)
     fo.close()
-    return {'x': d['data'], 'y': d['labels']}
+    return {'x': d['data'], 'y': d['labels'], 'm': d['masks']}
 
 def load(data_dir, subset='train'):
     if subset=='train':
         train_data = unpickle(os.path.join(data_dir,'letters_train.pkl'))
-        return train_data['x'], train_data['y']
+        return train_data['x'], train_data['y'], train_data['m']
     elif subset=='test':
         test_data = unpickle(os.path.join(data_dir,'letters_test.pkl'))
-        return test_data['x'], test_data['y']
+        return test_data['x'], test_data['y'], test_data['m']
     else:
         raise NotImplementedError('subset should be either train or test')
 
@@ -48,7 +48,7 @@ class DataLoader(object):
             os.makedirs(data_dir)
 
         # load CIFAR-10 training data to RAM
-        self.data, self.labels = load(data_dir, subset=subset)
+        self.data, self.labels, self.masks = load(data_dir, subset=subset)
         
         self.p = 0 # pointer to where we are in iteration
         self.rng = np.random.RandomState(1) if rng is None else rng
@@ -73,6 +73,7 @@ class DataLoader(object):
         if self.p == 0 and self.shuffle:
             inds = self.rng.permutation(self.data.shape[0])
             self.data = self.data[inds]
+            self.masks = self.masks[inds]
 #            self.labels = self.labels[inds]
 
         # on last iteration reset the counter and raise StopIteration
@@ -83,11 +84,12 @@ class DataLoader(object):
         # on intermediate iterations fetch the next batch
         x = self.data[self.p : self.p + n]
         # y = self.labels[self.p : self.p + n]
+        m = self.masks[self.p : self.p + n]
         self.p += self.batch_size
 
         if self.return_labels:
-            return x,y
+            return x,y,m
         else:
-            return x
+            return x,m
 
     next = __next__  # Python 2 compatibility (https://stackoverflow.com/questions/29578469/how-to-make-an-object-both-a-python2-and-python3-iterator)
