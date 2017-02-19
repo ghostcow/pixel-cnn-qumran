@@ -5,7 +5,7 @@ Uses multiple GPUs, indicated by the flag --nr-gpu
 Example usage:
 CUDA_VISIBLE_DEVICES=0,1,2,3 python train_double_cnn.py --nr_gpu 4
 """
-import pdb
+
 import os
 import sys
 import time
@@ -75,7 +75,9 @@ if args.class_conditional:
     num_labels = train_data.get_num_labels()
     y_init = tf.placeholder(tf.int32, shape=(args.init_batch_size,))
     h_init = tf.one_hot(y_init, num_labels)
-    y_sample = np.split(np.mod(np.arange(args.batch_size*args.nr_gpu), num_labels), args.nr_gpu)
+    _,y_sample,_ = test_data.next()
+    test_data.reset()
+    y_sample = np.split(y_sample, args.nr_gpu)
     h_sample = [tf.one_hot(tf.Variable(y_sample[i], trainable=False), num_labels) for i in range(args.nr_gpu)]
     ys = [tf.placeholder(tf.int32, shape=(args.batch_size,)) for i in range(args.nr_gpu)]
     hs = [tf.one_hot(ys[i], num_labels) for i in range(args.nr_gpu)]
@@ -134,7 +136,7 @@ for i in range(args.nr_gpu):
         new_x_gen.append(nn.sample_from_discretized_mix_logistic(gen_par, args.nr_logistic_mix))
 def sample_from_model(sess, data):
 #    x_gen = [np.zeros((args.batch_size,) + obs_shape, dtype=np.float32) for i in range(args.nr_gpu)]
-    x_gen, masks = data
+    x_gen, _, masks = data
     x_gen = np.cast[np.float32]((x_gen - 127.5) / 127.5) # input to pixelCNN is scaled from uint8 [0,255] to float in range [-1,1]
     masks = np.cast[np.float32](np.round(masks / 255)) # temp fix, this needs to be done at data creation.
     x_gen = np.split(x_gen, args.nr_gpu)
@@ -205,34 +207,35 @@ with tf.Session() as sess:
                 saver.restore(sess, ckpt_file)
 
         # train for one epoch
-#        train_losses = []
-#        for d in tqdm(train_data):
-#            feed_dict = make_feed_dict(d)
-#            # forward/backward/update model on each gpu
-#            lr *= args.lr_decay
-#            feed_dict.update({ tf_lr: lr })
-#            l,_ = sess.run([bits_per_dim, optimizer], feed_dict)
-#            train_losses.append(l)
-#        train_loss_gen = np.mean(train_losses)
-#
-#        # compute likelihood over test data
-#        test_losses = []
-#        for d in test_data:
-#            feed_dict = make_feed_dict(d)
-#            l = sess.run(bits_per_dim_test, feed_dict)
-#            test_losses.append(l)
-#        test_loss_gen = np.mean(test_losses)
-#        test_bpd.append(test_loss_gen)
+        train_losses = []
+        for d in tqdm(train_data):
+            feed_dict = make_feed_dict(d)
+            # forward/backward/update model on each gpu
+            lr *= args.lr_decay
+            feed_dict.update({ tf_lr: lr })
+            l,_ = sess.run([bits_per_dim, optimizer], feed_dict)
+            train_losses.append(l)
+        train_loss_gen = np.mean(train_losses)
+
+        # compute likelihood over test data
+        test_losses = []
+        for d in test_data:
+            feed_dict = make_feed_dict(d)
+            l = sess.run(bits_per_dim_test, feed_dict)
+            test_losses.append(l)
+        test_loss_gen = np.mean(test_losses)
+        test_bpd.append(test_loss_gen)
 
         # log progress to console
-#        print("Iteration %d, time = %ds, train bits_per_dim = %.4f, test bits_per_dim = %.4f" % (epoch, time.time()-begin, train_loss_gen, test_loss_gen))
-#        sys.stdout.flush()
+        print("Iteration %d, time = %ds, train bits_per_dim = %.4f, test bits_per_dim = %.4f" % (epoch, time.time()-begin, train_loss_gen, test_loss_gen))
+        sys.stdout.flush()
 
         if epoch % args.save_interval == 0:
 
             # generate samples from the model
             print('generating samples from model...', end='', flush=True)
             sample_x = sample_from_model(sess, test_data.next())
+            test_data.reset()
             img_tile = plotting.img_tile(sample_x[:int(np.floor(np.sqrt(args.batch_size*args.nr_gpu))**2)], aspect_ratio=1.0, border_color=1.0, stretch=True)
             img = plotting.plot_img(img_tile, title=args.data_set + ' samples')
             plotting.plt.savefig(os.path.join(args.save_dir,'%s_sample%d.png' % (args.data_set, epoch)))
