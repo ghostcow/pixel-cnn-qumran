@@ -57,7 +57,8 @@ class DataLoader(object):
         return self.data.shape[1:]
 
     def get_num_labels(self):
-        return np.amax(self.labels) + 1
+        #return np.amax(self.labels) + 1
+        return 4
 
     def reset(self):
         self.p = 0
@@ -86,10 +87,15 @@ class DataLoader(object):
         y = self.labels[self.p : self.p + n]
         m = self.masks[self.p : self.p + n]
         self.p += self.batch_size
-
+        
+        # randomly rotate batch
+        k = np.random.randint(4)
+        x = np.rot90(x, k=k, axes=(1,2))
+        m = np.rot90(m, k=k, axes=(1,2))
+        
         if self.return_labels:
-            return x,y,m
+            return x,y,m,k
         else:
-            return x,m
+            return x,m,k
 
     next = __next__  # Python 2 compatibility (https://stackoverflow.com/questions/29578469/how-to-make-an-object-both-a-python2-and-python3-iterator)
