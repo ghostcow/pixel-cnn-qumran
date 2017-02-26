@@ -37,6 +37,7 @@ parser.add_argument('-n', '--nr_filters', type=int, default=160, help='Number of
 parser.add_argument('-m', '--nr_logistic_mix', type=int, default=10, help='Number of logistic components in the mixture. Higher = more flexible model')
 parser.add_argument('-z', '--resnet_nonlinearity', type=str, default='concat_elu', help='Which nonlinearity to use in the ResNet layers. One of "concat_elu", "elu", "relu" ')
 parser.add_argument('-c', '--class_conditional', dest='class_conditional', action='store_true', help='Condition generative model on labels?')
+parser.add_argument('-f', '--rotation', type=int, default=None, help='Force uniform rotation of angle n*90 degrees counter-clockwise.')
 # optimization
 parser.add_argument('-l', '--learning_rate', type=float, default=0.001, help='Base learning rate')
 parser.add_argument('-e', '--lr_decay', type=float, default=0.999995, help='Learning rate decay, applied every step of the optimization')
@@ -62,8 +63,8 @@ tf.set_random_seed(args.seed)
 if args.data_set == 'imagenet' and args.class_conditional:
     raise("We currently don't have labels for the small imagenet data set")
 DataLoader = {'cifar':cifar10_data.DataLoader, 'imagenet':imagenet_data.DataLoader, 'letters':letters_data.DataLoader}[args.data_set]
-train_data = DataLoader(args.data_dir, 'train', args.batch_size * args.nr_gpu, rng=rng, shuffle=True, return_labels=args.class_conditional)
-test_data = DataLoader(args.data_dir, 'test', args.batch_size * args.nr_gpu, shuffle=False, return_labels=args.class_conditional)
+train_data = DataLoader(args.data_dir, 'train', args.batch_size * args.nr_gpu, rng=rng, shuffle=True, return_labels=args.class_conditional, rotation=args.rotation)
+test_data = DataLoader(args.data_dir, 'test', args.batch_size * args.nr_gpu, shuffle=False, return_labels=args.class_conditional, rotation=args.rotation if args.rotation else 0)
 obs_shape = train_data.get_observation_size() # e.g. a tuple (32,32,3)
 assert len(obs_shape) == 3, 'assumed right now'
 
@@ -137,50 +138,49 @@ for i in range(args.nr_gpu):
         gen_par = model(xs[i], h_sample[i], ema=ema, dropout_p=0, **model_opt)
         new_x_gen.append(nn.sample_from_discretized_mix_logistic(gen_par, args.nr_logistic_mix))
 def sample_from_model(sess, data, s=0):
-#    x_gen = [np.zeros((args.batch_size,) + obs_shape, dtype=np.float32) for i in range(args.nr_gpu)]
-    x_gen, labels, masks, k = data
-    x_gen = np.cast[np.float32]((x_gen - 127.5) / 127.5) # input to pixelCNN is scaled from uint8 [0,255] to float in range [-1,1]
-    x_sample = np.rot90(x_gen[s], k=-k, axes=(0,1)).copy()
-    m_sample = np.rot90(masks[s], k=-k, axes=(0,1)).copy()
-    
-    label = labels[s]
+    x_gen = [np.zeros((args.batch_size,) + obs_shape, dtype=np.float32) for i in range(args.nr_gpu)]
+#    x_gen, labels, masks, k = data
+#    x_gen = np.cast[np.float32]((x_gen - 127.5) / 127.5) # input to pixelCNN is scaled from uint8 [0,255] to float in range [-1,1]
+#    x_sample = np.rot90(x_gen[s], k=-k, axes=(0,1)).copy()
+#    m_sample = np.rot90(masks[s], k=-k, axes=(0,1)).copy()
+#    
+#    label = labels[s]
 
 
-    x_gen[:,...] = x_sample
-    masks[:,...] = m_sample
-    for i,k in enumerate(np.concatenate(y_sample, axis=0)):
-        if i==0:
-            continue
-        x_gen[i] = np.rot90(x_gen[i], k=k, axes=(0,1))
-        masks[i] = np.rot90(masks[i], k=k, axes=(0,1))
-    x_gen = np.split(x_gen, args.nr_gpu)
-    masks = np.split(masks, args.nr_gpu)
+#    x_gen[:,...] = x_sample
+#    masks[:,...] = m_sample
+#    for i,k in enumerate(np.concatenate(y_sample, axis=0)):
+#        if i==0:
+#            continue
+#        x_gen[i] = np.rot90(x_gen[i], k=k, axes=(0,1))
+#        masks[i] = np.rot90(masks[i], k=k, axes=(0,1))
+#    x_gen = np.split(x_gen, args.nr_gpu)
+#    masks = np.split(masks, args.nr_gpu)
     for yi in range(obs_shape[0]):
         for xi in range(obs_shape[1]):
             new_x_gen_np = sess.run(new_x_gen, {xs[i]: x_gen[i] for i in range(args.nr_gpu)})
             for i in range(args.nr_gpu):
-#                x_gen[i][:,yi,xi,:] = new_x_gen_np[i][:,yi,xi,:]
-                x_gen[i][:,yi,xi,:] = new_x_gen_np[i][:,yi,xi,:]*(1-masks[i][:,yi,xi,:])+x_gen[i][:,yi,xi,:]*masks[i][:,yi,xi,:]
-
-    x_gen = np.concatenate(x_gen, axis=0)
-    masks = np.concatenate(masks, axis=0)
+                x_gen[i][:,yi,xi,:] = new_x_gen_np[i][:,yi,xi,:]
+#                x_gen[i][:,yi,xi,:] = new_x_gen_np[i][:,yi,xi,:]*(1-masks[i][:,yi,xi,:])+x_gen[i][:,yi,xi,:]*masks[i][:,yi,xi,:]
+    return np.concatenate(x_gen, axis=0)
+#    x_gen = np.concatenate(x_gen, axis=0)
+#    masks = np.concatenate(masks, axis=0)
     # color black fill-in as red, white fill-in as green
-    black_inds = ( (x_gen)*(1-masks) == -1 )
-    white_inds = np.cast[np.bool]( (~black_inds)*(1-masks) )
-    x_gen[black_inds[...,0],0] = 1
-    x_gen[white_inds[...,0],0] = -1
-    x_gen[white_inds[...,2],2] = -1
+#    black_inds = ( (x_gen)*(1-masks) == -1 )
+#    white_inds = np.cast[np.bool]( (~black_inds)*(1-masks) )
+#    x_gen[black_inds[...,0],0] = 1
+#    x_gen[white_inds[...,0],0] = -1
+#    x_gen[white_inds[...,2],2] = -1
     # first sample is the real sample
-    x_gen[0] = x_sample
+#    x_gen[0] = x_sample
     # rotate back
 #    x_gen = np.concatenate(x_gen, axis=0)
-    x_gen_unrot = x_gen.copy()
-    for i,k in enumerate(np.concatenate(y_sample, axis=0)):
-        if i==0:
-            continue
-        x_gen_unrot[i] = np.rot90(x_gen_unrot[i], k=-k, axes=(0,1))
-    #return np.concatenate(x_gen, axis=0)
-    return x_gen, x_gen_unrot, label
+#    x_gen_unrot = x_gen.copy()
+#    for i,k in enumerate(np.concatenate(y_sample, axis=0)):
+#        if i==0:
+#            continue
+#        x_gen_unrot[i] = np.rot90(x_gen_unrot[i], k=-k, axes=(0,1))
+#    return x_gen, x_gen_unrot, label
 
 
 # init & save
@@ -199,8 +199,8 @@ def make_feed_dict(data, init=False):
         y = None
     x = np.cast[np.float32]((x - 127.5) / 127.5) # input to pixelCNN is scaled from uint8 [0,255] to float in range [-1,1]
     # make y the orientation label
-    y = np.zeros_like(y)
-    y.fill(k)
+#    y = np.zeros_like(y)
+#    y.fill(k)
     
     if init:
         feed_dict = {x_init: x}
@@ -281,18 +281,15 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
                 plotting.plt.close('all')
             
 
-            for s in range(5):
-                sample_x, sample_x_unrot, label = sample_from_model(sess, data, s)
-                # print rotated samples
-                print_samples(sample_x, suffix='_rot_{}'.format(label))
-                # print unrotated samples
-                print_samples(sample_x_unrot, suffix='_unrot_{}'.format(label))
-                print('generated samples with label {}'.format(label))
-                
-
-
-
-            
+#            for s in range(5):
+#                sample_x, sample_x_unrot, label = sample_from_model(sess, data, s)
+#                # print rotated samples
+#                print_samples(sample_x, suffix='_rot_{}'.format(label))
+#                # print unrotated samples
+#                print_samples(sample_x_unrot, suffix='_unrot_{}'.format(label))
+#                print('generated samples with label {}'.format(label))
+            sample_x = sample_from_model(sess, data)
+            print_samples(sample_x)
             print('done.')
 
             # save params

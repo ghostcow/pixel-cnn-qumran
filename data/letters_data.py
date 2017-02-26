@@ -29,7 +29,7 @@ def load(data_dir, subset='train'):
 class DataLoader(object):
     """ an object that generates batches of data for training """
 
-    def __init__(self, data_dir, subset, batch_size, rng=None, shuffle=False, return_labels=False):
+    def __init__(self, data_dir, subset, batch_size, rng=None, shuffle=False, return_labels=False, rotation=None):
         """ 
         - data_dir is location where to store files
         - subset is train|test 
@@ -41,6 +41,7 @@ class DataLoader(object):
         self.batch_size = batch_size
         self.shuffle = shuffle
         self.return_labels = return_labels
+        self.rotation = rotation
 
         # create temporary storage for the data, if not yet created
         if not os.path.exists(data_dir):
@@ -57,8 +58,10 @@ class DataLoader(object):
         return self.data.shape[1:]
 
     def get_num_labels(self):
-        #return np.amax(self.labels) + 1
-        return 4
+        if self.rotation is None:
+            return 4
+        else:
+            return np.amax(self.labels) + 1
 
     def reset(self):
         self.p = 0
@@ -88,8 +91,11 @@ class DataLoader(object):
         m = self.masks[self.p : self.p + n]
         self.p += self.batch_size
         
-        # randomly rotate batch
-        k = np.random.randint(4)
+        # (randomly) rotate batch
+        if self.rotation is None:
+            k = np.random.randint(4)
+        else:
+            k = self.rotation
         x = np.rot90(x, k=k, axes=(1,2))
         m = np.rot90(m, k=k, axes=(1,2))
         
