@@ -100,7 +100,8 @@ class DataLoader(object):
         m = np.rot90(m, k=k, axes=(1,2))
         
         if self.return_labels:
-            return x,y,m,k
+            #return x,y,m,k
+            return x,y.copy().fill(k),m,k
         else:
             return x,m,k
 
