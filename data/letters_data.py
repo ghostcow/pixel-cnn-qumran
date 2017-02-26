@@ -101,7 +101,9 @@ class DataLoader(object):
         
         if self.return_labels:
             #return x,y,m,k
-            return x,y.copy().fill(k),m,k
+            y=y.copy()
+            y.fill(k)
+            return x,y,m,k
         else:
             return x,m,k
 
