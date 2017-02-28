@@ -29,7 +29,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('-i', '--data_dir', type=str, default='/tmp/pxpp/data', help='Location for the dataset')
 parser.add_argument('-o', '--save_dir', type=str, default='/tmp/pxpp/save', help='Location for parameter checkpoints and samples')
 parser.add_argument('-d', '--data_set', type=str, default='cifar', help='Can be either cifar|imagenet|letters')
-parser.add_argument('-t', '--save_interval', type=int, default=20, help='Every how many epochs to write checkpoint/samples?')
+parser.add_argument('-t', '--gen_interval', type=int, default=20, help='Every how many epochs to write checkpoint/samples?')
 parser.add_argument('-r', '--load_params', dest='load_params', action='store_true', help='Restore training from previous model checkpoint?')
 # model
 parser.add_argument('-q', '--nr_resnet', type=int, default=5, help='Number of residual blocks per stage of the model')
@@ -223,6 +223,16 @@ min_test_loss = np.inf
 test_loss_gen = np.inf
 lr = args.learning_rate
 gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8)
+
+# early stopping params
+patience = 1
+min_delta = 0
+min_delta *= -1
+wait = 0
+stopped_epoch = 0
+best = np.Inf
+stop_training = False
+
 with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
     for epoch in range(args.max_epochs):
         begin = time.time()
@@ -266,9 +276,8 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
             # log progress to console
             print("Iteration %d, time = %ds, train bits_per_dim = %.4f, test bits_per_dim = %.4f" % (epoch, time.time()-begin, train_loss_gen, test_loss_gen))
             sys.stdout.flush()
-
-        if epoch % args.save_interval == 0:
-
+                   
+        if epoch % args.gen_interval == 0 and epoch > 0:
             # generate samples from the model
             print('generating samples from model...')
             data = test_data.next()
@@ -279,21 +288,27 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
                 img = plotting.plot_img(img_tile, title=args.data_set + ' samples')
                 plotting.plt.savefig(os.path.join(args.save_dir,'%s_sample%d%s.png' % (args.data_set, epoch, suffix)))
                 plotting.plt.close('all')
-            
 
-#            for s in range(5):
-#                sample_x, sample_x_unrot, label = sample_from_model(sess, data, s)
-#                # print rotated samples
-#                print_samples(sample_x, suffix='_rot_{}'.format(label))
-#                # print unrotated samples
-#                print_samples(sample_x_unrot, suffix='_unrot_{}'.format(label))
-#                print('generated samples with label {}'.format(label))
             sample_x = sample_from_model(sess, data)
             print_samples(sample_x)
             print('done.')
+            
+        # save params via early stopping
+        current = test_loss_gen
 
-            # save params
-            if test_loss_gen < min_test_loss and not args.just_gen:
-                saver.save(sess, args.save_dir + '/params_' + args.data_set + '.ckpt')
-                np.savez(args.save_dir + '/test_bpd_' + args.data_set + '.npz', test_bpd=np.array(test_bpd))
-                min_test_loss = test_loss_gen
+        if np.less(current - min_delta, best):
+            best = current
+            wait = 0
+            print('Saving model params...', end='')
+            saver.save(sess, args.save_dir + '/params_' + args.data_set + '.ckpt')
+            np.savez(args.save_dir + '/test_bpd_' + args.data_set + '.npz', test_bpd=np.array(test_bpd))
+            print('done.')
+        else:
+            if wait >= patience:
+                stopped_epoch = epoch
+                print('Epoch %05d: early stopping' % (stopped_epoch))
+                stop_training = True
+            wait += 1
+            
+        if stop_training:
+            sys.exit(0)
