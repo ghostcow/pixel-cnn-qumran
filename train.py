@@ -225,7 +225,7 @@ lr = args.learning_rate
 gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8)
 
 # early stopping params
-patience = 1
+patience = 50
 min_delta = 0
 min_delta *= -1
 wait = 0
@@ -311,4 +311,4 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
             wait += 1
             
         if stop_training:
-            sys.exit(0)
+            break

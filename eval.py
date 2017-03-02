@@ -198,9 +198,6 @@ def make_feed_dict(data, init=False):
         x = data
         y = None
     x = np.cast[np.float32]((x - 127.5) / 127.5) # input to pixelCNN is scaled from uint8 [0,255] to float in range [-1,1]
-    # make y the orientation label
-#    y = np.zeros_like(y)
-#    y.fill(k)
     
     if init:
         feed_dict = {x_init: x}

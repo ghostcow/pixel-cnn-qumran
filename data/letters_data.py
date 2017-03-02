@@ -78,7 +78,7 @@ class DataLoader(object):
             inds = self.rng.permutation(self.data.shape[0])
             self.data = self.data[inds]
             self.masks = self.masks[inds]
-#            self.labels = self.labels[inds]
+            self.labels = self.labels[inds]
 
         # on last iteration reset the counter and raise StopIteration
         if self.p + n > self.data.shape[0]:
@@ -101,6 +101,7 @@ class DataLoader(object):
         
         if self.return_labels:
             #return x,y,m,k
+            # don't use labels for now 01/03
             y=y.copy()
             y.fill(k)
             return x,y,m,k
