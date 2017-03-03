@@ -184,7 +184,7 @@ def sample_from_model(sess, data, s=0):
 
 
 # init & save
-initializer = tf.initialize_all_variables()
+initializer = tf.global_variables_initializer()
 saver = tf.train.Saver()
 
 # turn numpy inputs into feed_dict for use with tensorflow
