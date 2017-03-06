@@ -77,11 +77,6 @@ if args.class_conditional:
     num_labels = train_data.get_num_labels()
     y_init = tf.placeholder(tf.int32, shape=(args.init_batch_size,))
     h_init = tf.one_hot(y_init, num_labels)
-#    _,y_sample,_ = test_data.next()
-#    test_data.reset()
-    y_sample = np.arange(args.batch_size * args.nr_gpu) % num_labels
-    y_sample = np.split(y_sample, args.nr_gpu)
-    h_sample = [tf.one_hot(tf.Variable(y_sample[i], trainable=False), num_labels) for i in range(args.nr_gpu)]
     ys = [tf.placeholder(tf.int32, shape=(args.batch_size,)) for i in range(args.nr_gpu)]
     hs = [tf.one_hot(ys[i], num_labels) for i in range(args.nr_gpu)]
 else:
@@ -214,8 +209,7 @@ def make_feed_dict(data, init=False):
 # //////////// perform training //////////////
 if not os.path.exists(args.save_dir):
     os.makedirs(args.save_dir)
-print('starting training')
-test_bpd = []
+print('starting evaluation')
 min_test_loss = np.inf
 test_loss_gen = np.inf
 lr = args.learning_rate
@@ -243,7 +237,6 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
         l = sess.run(bits_per_dim_test, feed_dict)
         test_losses.append(l)
     test_loss_gen = np.mean(test_losses)
-    test_bpd.append(test_loss_gen)
 
     # log progress to console
     print("Time = %ds, test bits_per_dim = %.4f" % (time.time()-begin, test_loss_gen))
