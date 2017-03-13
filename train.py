@@ -225,7 +225,7 @@ lr = args.learning_rate
 gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8)
 
 # early stopping params
-patience = 50
+patience = 100
 min_delta = 0
 min_delta *= -1
 wait = 0
