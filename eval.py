@@ -26,9 +26,9 @@ import data.letters_data as letters_data
 # -----------------------------------------------------------------------------
 parser = argparse.ArgumentParser()
 # data I/O
-parser.add_argument('-i', '--data_dir', type=str, default='/tmp/pxpp/data', help='Location for the dataset')
-parser.add_argument('-o', '--save_dir', type=str, default='/tmp/pxpp/save', help='Location for parameter checkpoints and samples')
-parser.add_argument('-d', '--data_set', type=str, default='cifar', help='Can be either cifar|imagenet|letters')
+parser.add_argument('-i', '--data_dir', type=str, default='data/letters_data', help='Location for the dataset')
+parser.add_argument('-o', '--save_dir', type=str, default='data/letters_data/checkpoints', help='Location for parameter checkpoints and samples')
+parser.add_argument('-d', '--data_set', type=str, default='letters', help='Can be either cifar|imagenet|letters')
 parser.add_argument('-t', '--save_interval', type=int, default=20, help='Every how many epochs to write checkpoint/samples?')
 parser.add_argument('-r', '--load_params', dest='load_params', action='store_true', help='Restore training from previous model checkpoint?')
 # model
@@ -44,8 +44,8 @@ parser.add_argument('-e', '--lr_decay', type=float, default=0.999995, help='Lear
 parser.add_argument('-b', '--batch_size', type=int, default=12, help='Batch size during training per GPU')
 parser.add_argument('-a', '--init_batch_size', type=int, default=100, help='How much data to use for data-dependent initialization.')
 parser.add_argument('-p', '--dropout_p', type=float, default=0.5, help='Dropout strength (i.e. 1 - keep_prob). 0 = No dropout, higher = more dropout.')
-parser.add_argument('-x', '--max_epochs', type=int, default=1, help='How many epochs to run in total?')
-parser.add_argument('-g', '--nr_gpu', type=int, default=8, help='How many GPUs to distribute the training across?')
+parser.add_argument('-x', '--max_epochs', type=int, default=601, help='How many epochs to run in total?')
+parser.add_argument('-g', '--nr_gpu', type=int, default=4, help='How many GPUs to distribute the training across?')
 # evaluation
 parser.add_argument('--polyak_decay', type=float, default=0.9995, help='Exponential decay rate of the sum of previous model iterates during Polyak averaging')
 parser.add_argument('-j', '--just_gen', dest='just_gen', action='store_true', help='Just generate samples without training.')
@@ -77,6 +77,9 @@ if args.class_conditional:
     num_labels = train_data.get_num_labels()
     y_init = tf.placeholder(tf.int32, shape=(args.init_batch_size,))
     h_init = tf.one_hot(y_init, num_labels)
+    y_sample = np.zeros(args.batch_size * args.nr_gpu)
+    y_sample = np.split(y_sample, args.nr_gpu)
+    h_sample = [tf.one_hot(tf.Variable(y_sample[i], dtype=tf.int64, trainable=False), num_labels) for i in range(args.nr_gpu)]
     ys = [tf.placeholder(tf.int32, shape=(args.batch_size,)) for i in range(args.nr_gpu)]
     hs = [tf.one_hot(ys[i], num_labels) for i in range(args.nr_gpu)]
 else:
@@ -106,7 +109,7 @@ for i in range(args.nr_gpu):
         gen_par = model(xs[i], hs[i], ema=None, dropout_p=args.dropout_p, **model_opt)
         loss_gen.append(nn.discretized_mix_logistic_loss(xs[i], gen_par))
         # gradients
-        grads.append(tf.gradients(loss_gen[i], all_params))
+#        grads.append(tf.gradients(loss_gen[i], all_params))
         # test
         gen_par = model(xs[i], hs[i], ema=ema, dropout_p=0., **model_opt)
         loss_gen_test.append(nn.discretized_mix_logistic_loss(xs[i], gen_par))
@@ -117,10 +120,10 @@ with tf.device('/gpu:0'):
     for i in range(1,args.nr_gpu):
         loss_gen[0] += loss_gen[i]
         loss_gen_test[0] += loss_gen_test[i]
-        for j in range(len(grads[0])):
-            grads[0][j] += grads[i][j]
+#        for j in range(len(grads[0])):
+#            grads[0][j] += grads[i][j]
     # training op
-    optimizer = tf.group(nn.adam_updates(all_params, grads[0], lr=tf_lr, mom1=0.95, mom2=0.9995), maintain_averages_op)
+#    optimizer = tf.group(nn.adam_updates(all_params, grads[0], lr=tf_lr, mom1=0.95, mom2=0.9995), maintain_averages_op)
 
 # convert loss to bits/dim
 bits_per_dim = loss_gen[0]/(args.nr_gpu*np.log(2.)*np.prod(obs_shape)*args.batch_size)
@@ -248,12 +251,13 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
         print('generating samples from model...')
         data = test_data.next()
         test_data.reset()
-
+        sample_x = sample_from_model(sess, data)
+        
         def print_samples(sample_x, suffix=''):
             img_tile = plotting.img_tile(sample_x[:int(np.floor(np.sqrt(args.batch_size*args.nr_gpu))**2)], aspect_ratio=1.0, border_color=1.0, stretch=True)
             img = plotting.plot_img(img_tile, title=args.data_set + ' samples')
             plotting.plt.savefig(os.path.join(args.save_dir,'%s_sample%d%s.png' % (args.data_set, epoch, suffix)))
             plotting.plt.close('all')
-        sample_x = sample_from_model(sess, data)
+        
         print_samples(sample_x)
         print('done.')
