@@ -165,11 +165,11 @@ def sample_from_model(sess, data, s=0):
 #    return np.concatenate(x_gen, axis=0)
     x_gen = np.concatenate(x_gen, axis=0)
     masks = np.concatenate(masks, axis=0)
-    '''
-    purple: 102 0 153
-    yellow: 255 204 0
-    grey: 153 153 153
-    '''
+    """
+    #purple: 102 0 153
+    #yellow: 255 204 0
+    #grey: 153 153 153
+    
     # color black fill-in as red, white fill-in as green
     black_inds = ( (x_gen)*(1-masks) == -1 )
     white_inds = np.cast[np.bool]( (~black_inds)*(1-masks) )
@@ -179,6 +179,7 @@ def sample_from_model(sess, data, s=0):
     x_gen[white_inds[...,0],0] = ((255 - 127.5) / 127.5)
     x_gen[white_inds[...,1],1] = ((204 - 127.5) / 127.5)
     x_gen[white_inds[...,2],2] = ((0 - 127.5) / 127.5)
+    """
     # first sample is the real sample
 #    x_gen[0] = x_sample
     # rotate back
@@ -263,15 +264,31 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
         plotting.plt.close('all')
     
     if args.just_gen:
-        gen_data = []
-        # generate samples from the model
-        print('generating samples from model...')
-        for data in tqdm(test_data):
-            sample_x = sample_from_model(sess, data)
-            gen_data.append((sample_x, data))
-        # save results
-        with open(os.path.join(args.save_dir,'results.pkl'),'wb') as f:
-            pkl.dump(gen_data,f)
-            
+        average_psnrs=[]
+        for run in range(20):
+            gen_data = []
+            # generate samples from the model
+            print('generating samples from model...')
+            for data in tqdm(test_data):
+                sample_x = sample_from_model(sess, data)
+                gen_data.append((sample_x, data))
+            # save results
+            with open(os.path.join(args.save_dir,'results_{}.pkl'.format(run)),'wb') as f:
+                pkl.dump(gen_data,f)
+            # calculate mean average psnr
+            psnrs=[]
+            for o, data in gen_data:
+                # calculate per-picture psnr
+                for i in range(o.shape[0]):
+                    #change to 0..255
+                    x = 127.5 * o[i] + 127.5
+                    y = data[0][i]
+                    mse = np.sum( np.power(x-y,2) ) / np.prod( x.shape )
+                    psnr = 20 * ( np.log10(255) - np.log10(np.sqrt(mse)) )
+                    psnrs.append(psnr)
+            psnr_avg, psnr_std = np.mean(psnrs), np.std(psnrs)
+            print("average psnr run {}: {}, std: {}".format(run, psnr_avg, psnr_std))
+            average_psnrs.append(psnr_avg)
+        print("mean average psnr: {}, std over runs: {}".format(np.mean(average_psnrs), np.std(average_psnrs)))
 #        print_samples(sample_x)
         print('done.')
