@@ -58,10 +58,10 @@ class DataLoader(object):
         return self.data.shape[1:]
 
     def get_num_labels(self):
-#        if self.rotation is None:
-#            return 4
-#        else:
-#            return np.amax(self.labels) + 1
+        # if self.rotation is None:
+            # return 4
+        # else:
+            # return np.amax(self.labels) + 1
         return 4
 
     def reset(self):
