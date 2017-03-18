@@ -29,7 +29,7 @@ def load(data_dir, subset='train'):
 class DataLoader(object):
     """ an object that generates batches of data for training """
 
-    def __init__(self, data_dir, subset, batch_size, rng=None, shuffle=False, return_labels=False, rotation=None):
+    def __init__(self, data_dir, subset, batch_size, rng=None, shuffle=False, return_labels=False, rotation=None, test=False):
         """ 
         - data_dir is location where to store files
         - subset is train|test 
@@ -42,6 +42,7 @@ class DataLoader(object):
         self.shuffle = shuffle
         self.return_labels = return_labels
         self.rotation = rotation
+        self.test = test
 
         # create temporary storage for the data, if not yet created
         if not os.path.exists(data_dir):
@@ -79,7 +80,8 @@ class DataLoader(object):
             inds = self.rng.permutation(self.data.shape[0])
             self.data = self.data[inds]
             self.masks = self.masks[inds]
-            self.labels = self.labels[inds]
+            if not self.test:
+                self.labels = self.labels[inds]
 
         # on last iteration reset the counter and raise StopIteration
         if self.p + n > self.data.shape[0]:
@@ -88,7 +90,8 @@ class DataLoader(object):
 
         # on intermediate iterations fetch the next batch
         x = self.data[self.p : self.p + n]
-        y = self.labels[self.p : self.p + n]
+        if not self.test:
+            y = self.labels[self.p : self.p + n]
         m = self.masks[self.p : self.p + n]
         self.p += self.batch_size
         
@@ -100,7 +103,7 @@ class DataLoader(object):
         x = np.rot90(x, k=k, axes=(1,2))
         m = np.rot90(m, k=k, axes=(1,2))
         
-        if self.return_labels:
+        if self.return_labels and not self.test:
             #return x,y,m,k
             # don't use labels for now 01/03
             y=y.copy()

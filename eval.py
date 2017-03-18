@@ -31,7 +31,6 @@ parser = argparse.ArgumentParser()
 parser.add_argument('-i', '--data_dir', type=str, default='data/letters_data', help='Location for the dataset')
 parser.add_argument('-o', '--save_dir', type=str, default='data/letters_data/checkpoints', help='Location for parameter checkpoints and samples')
 parser.add_argument('-d', '--data_set', type=str, default='letters', help='Can be either cifar|imagenet|letters')
-parser.add_argument('-t', '--save_interval', type=int, default=20, help='Every how many epochs to write checkpoint/samples?')
 parser.add_argument('-r', '--load_params', dest='load_params', action='store_true', help='Restore training from previous model checkpoint?')
 # model
 parser.add_argument('-q', '--nr_resnet', type=int, default=5, help='Number of residual blocks per stage of the model')
@@ -49,8 +48,10 @@ parser.add_argument('-p', '--dropout_p', type=float, default=0.5, help='Dropout 
 parser.add_argument('-x', '--max_epochs', type=int, default=601, help='How many epochs to run in total?')
 parser.add_argument('-g', '--nr_gpu', type=int, default=4, help='How many GPUs to distribute the training across?')
 # evaluation
+parser.add_argument('-t', '--color', dest='color', action='store_true', help='Color the completed area in yellow and purple in the generated samples.')
 parser.add_argument('--polyak_decay', type=float, default=0.9995, help='Exponential decay rate of the sum of previous model iterates during Polyak averaging')
 parser.add_argument('-j', '--just_gen', dest='just_gen', action='store_true', help='Just generate samples without training.')
+parser.add_argument('-u', '--test', dest='test', action='store_true', help='Loading test samples (no labels).')
 # reproducibility
 parser.add_argument('-s', '--seed', type=int, default=1, help='Random seed to use')
 args = parser.parse_args()
@@ -65,9 +66,8 @@ tf.set_random_seed(args.seed)
 if args.data_set == 'imagenet' and args.class_conditional:
     raise("We currently don't have labels for the small imagenet data set")
 DataLoader = {'cifar':cifar10_data.DataLoader, 'imagenet':imagenet_data.DataLoader, 'letters':letters_data.DataLoader}[args.data_set]
-train_data = DataLoader(args.data_dir, 'train', args.batch_size * args.nr_gpu, rng=rng, shuffle=True, return_labels=args.class_conditional, rotation=args.rotation)
-test_data = DataLoader(args.data_dir, 'test', args.batch_size * args.nr_gpu, shuffle=False, return_labels=args.class_conditional, rotation=args.rotation if args.rotation else 0)
-obs_shape = train_data.get_observation_size() # e.g. a tuple (32,32,3)
+test_data = DataLoader(args.data_dir, 'test', args.batch_size * args.nr_gpu, shuffle=False, return_labels=args.class_conditional, rotation=args.rotation if args.rotation else 0, test=args.test)
+obs_shape = test_data.get_observation_size() # e.g. a tuple (32,32,3)
 assert len(obs_shape) == 3, 'assumed right now'
 
 # data place holders
@@ -76,7 +76,7 @@ xs = [tf.placeholder(tf.float32, shape=(args.batch_size, ) + obs_shape) for i in
 
 # if the model is class-conditional we'll set up label placeholders + one-hot encodings 'h' to condition on
 if args.class_conditional:
-    num_labels = train_data.get_num_labels()
+    num_labels = test_data.get_num_labels()
     y_init = tf.placeholder(tf.int32, shape=(args.init_batch_size,))
     h_init = tf.one_hot(y_init, num_labels)
     y_sample = np.zeros(args.batch_size * args.nr_gpu)
@@ -139,7 +139,10 @@ for i in range(args.nr_gpu):
         new_x_gen.append(nn.sample_from_discretized_mix_logistic(gen_par, args.nr_logistic_mix))
 def sample_from_model(sess, data, s=0):
     #x_gen = [np.zeros((args.batch_size,) + obs_shape, dtype=np.float32) for i in range(args.nr_gpu)]
-    x_gen, masks, k= data
+    if args.test:
+        x_gen, masks, k = data
+    else:
+        x_gen, labels, masks, k = data
     x_gen = np.cast[np.float32]((x_gen - 127.5) / 127.5) # input to pixelCNN is scaled from uint8 [0,255] to float in range [-1,1]
 #    x_sample = np.rot90(x_gen[s], k=-k, axes=(0,1)).copy()
 #    m_sample = np.rot90(masks[s], k=-k, axes=(0,1)).copy()
@@ -165,21 +168,22 @@ def sample_from_model(sess, data, s=0):
 #    return np.concatenate(x_gen, axis=0)
     x_gen = np.concatenate(x_gen, axis=0)
     masks = np.concatenate(masks, axis=0)
-    """
-    #purple: 102 0 153
-    #yellow: 255 204 0
-    #grey: 153 153 153
+    if args.color:
+        """
+        #purple: 102 0 153
+        #yellow: 255 204 0
+        #grey: 153 153 153
+        """
+        # color black fill-in as red, white fill-in as green
+        black_inds = ( (x_gen)*(1-masks) == -1 )
+        white_inds = np.cast[np.bool]( (~black_inds)*(1-masks) )
+        x_gen[black_inds[...,0],0] = ((102 - 127.5) / 127.5)
+        x_gen[black_inds[...,1],1] = ((0 - 127.5) / 127.5)
+        x_gen[black_inds[...,2],2] = ((153 - 127.5) / 127.5)
+        x_gen[white_inds[...,0],0] = ((255 - 127.5) / 127.5)
+        x_gen[white_inds[...,1],1] = ((204 - 127.5) / 127.5)
+        x_gen[white_inds[...,2],2] = ((0 - 127.5) / 127.5)
     
-    # color black fill-in as red, white fill-in as green
-    black_inds = ( (x_gen)*(1-masks) == -1 )
-    white_inds = np.cast[np.bool]( (~black_inds)*(1-masks) )
-    x_gen[black_inds[...,0],0] = ((102 - 127.5) / 127.5)
-    x_gen[black_inds[...,1],1] = ((0 - 127.5) / 127.5)
-    x_gen[black_inds[...,2],2] = ((153 - 127.5) / 127.5)
-    x_gen[white_inds[...,0],0] = ((255 - 127.5) / 127.5)
-    x_gen[white_inds[...,1],1] = ((204 - 127.5) / 127.5)
-    x_gen[white_inds[...,2],2] = ((0 - 127.5) / 127.5)
-    """
     # first sample is the real sample
 #    x_gen[0] = x_sample
     # rotate back
@@ -224,6 +228,7 @@ def make_feed_dict(data, init=False):
 if not os.path.exists(args.save_dir):
     os.makedirs(args.save_dir)
 print('starting evaluation')
+sys.stdout.flush()
 min_test_loss = np.inf
 test_loss_gen = np.inf
 lr = args.learning_rate
@@ -233,9 +238,7 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
 
     # init
     print('initializing the model...')
-    # feed_dict = make_feed_dict(train_data.next(args.init_batch_size), init=True) # manually retrieve exactly init_batch_size examples
-    # train_data.reset()  # rewind the iterator back to 0 to do one full epoch
-    # sess.run(initializer, feed_dict)
+    sys.stdout.flush()
     if args.load_params:
         ckpt_file = args.save_dir + '/params_' + args.data_set + '.ckpt'
         print('restoring parameters from', ckpt_file)
@@ -245,16 +248,16 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
         sys.exit(-1)
 
     # compute likelihood over test data
-    test_losses = []
-    for d in test_data:
-        feed_dict = make_feed_dict(d)
-        l = sess.run(bits_per_dim_test, feed_dict)
-        test_losses.append(l)
-    test_loss_gen = np.mean(test_losses)
-
-    # log progress to console
-    print("Time = %ds, test bits_per_dim = %.4f" % (time.time()-begin, test_loss_gen))
-    sys.stdout.flush()
+#    test_losses = []
+#    for d in test_data:
+#        feed_dict = make_feed_dict(d)
+#        l = sess.run(bits_per_dim_test, feed_dict)
+#        test_losses.append(l)
+#    test_loss_gen = np.mean(test_losses)
+#
+#    # log progress to console
+#    print("Time = %ds, test bits_per_dim = %.4f" % (time.time()-begin, test_loss_gen))
+#    sys.stdout.flush()
 
 
     def print_samples(sample_x):
@@ -263,32 +266,46 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
         plotting.plt.savefig(os.path.join(args.save_dir,'%s_sample%s.png' % (args.data_set, int(datetime.now().timestamp()))))
         plotting.plt.close('all')
     
-    if args.just_gen:
-        average_psnrs=[]
-        for run in range(20):
-            gen_data = []
-            # generate samples from the model
-            print('generating samples from model...')
-            for data in tqdm(test_data):
-                sample_x = sample_from_model(sess, data)
-                gen_data.append((sample_x, data))
+
+    print('beginning tests...')
+    sys.stdout.flush()
+    average_psnrs=[]
+    for run in range(10):
+        gen_data = []
+        # generate samples from the model
+        for data in test_data:                
+            sample_x = sample_from_model(sess, data)                
+            gen_data.append((sample_x, data))                
+
+        # if just generate, print out samples and quit
+        if args.just_gen:
+            print_samples(gen_data[0][0])
+            # save results
+            with open(os.path.join(args.save_dir,'generated_images.pkl'),'wb') as f:
+                pkl.dump(gen_data,f)
+            break
+        else:
             # save results
             with open(os.path.join(args.save_dir,'results_{}.pkl'.format(run)),'wb') as f:
                 pkl.dump(gen_data,f)
-            # calculate mean average psnr
-            psnrs=[]
-            for o, data in gen_data:
-                # calculate per-picture psnr
-                for i in range(o.shape[0]):
-                    #change to 0..255
-                    x = 127.5 * o[i] + 127.5
-                    y = data[0][i]
-                    mse = np.sum( np.power(x-y,2) ) / np.prod( x.shape )
-                    psnr = 20 * ( np.log10(255) - np.log10(np.sqrt(mse)) )
-                    psnrs.append(psnr)
-            psnr_avg, psnr_std = np.mean(psnrs), np.std(psnrs)
-            print("average psnr run {}: {}, std: {}".format(run, psnr_avg, psnr_std))
-            average_psnrs.append(psnr_avg)
+        
+        # calculate mean average psnr
+        psnrs=[]
+        for o, data in gen_data:
+            # calculate per-picture psnr
+            for i in range(o.shape[0]):
+                #change to 0..255
+                x = 127.5 * o[i] + 127.5
+                y = data[0][i]
+                mse = np.sum( np.power(x-y,2) ) / np.prod( x.shape )
+                psnr = 20 * ( np.log10(255) - np.log10(np.sqrt(mse)) )
+                psnrs.append(psnr)
+        psnr_avg, psnr_std = np.mean(psnrs), np.std(psnrs)
+        print("average psnr run {}: {}, std: {}".format(run, psnr_avg, psnr_std))
+        average_psnrs.append(psnr_avg)
+        sys.stdout.flush()
+    if len(average_psnrs)>0:
         print("mean average psnr: {}, std over runs: {}".format(np.mean(average_psnrs), np.std(average_psnrs)))
-#        print_samples(sample_x)
-        print('done.')
+        
+    print('done.')
+    sys.stdout.flush()
