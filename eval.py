@@ -140,9 +140,9 @@ for i in range(args.nr_gpu):
 def sample_from_model(sess, data, s=0):
     #x_gen = [np.zeros((args.batch_size,) + obs_shape, dtype=np.float32) for i in range(args.nr_gpu)]
     if args.test:
-        x_gen, masks, k = data
+        x_gen, masks = data
     else:
-        x_gen, labels, masks, k = data
+        x_gen, labels, masks = data
     x_gen = np.cast[np.float32]((x_gen - 127.5) / 127.5) # input to pixelCNN is scaled from uint8 [0,255] to float in range [-1,1]
 #    x_sample = np.rot90(x_gen[s], k=-k, axes=(0,1)).copy()
 #    m_sample = np.rot90(masks[s], k=-k, axes=(0,1)).copy()
@@ -270,6 +270,7 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
     print('beginning tests...')
     sys.stdout.flush()
     average_psnrs=[]
+    std_psnrs=[]
     for run in range(10):
         gen_data = []
         # generate samples from the model
@@ -303,9 +304,12 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
         psnr_avg, psnr_std = np.mean(psnrs), np.std(psnrs)
         print("average psnr run {}: {}, std: {}".format(run, psnr_avg, psnr_std))
         average_psnrs.append(psnr_avg)
+        std_psnrs.append(psnr_std)
         sys.stdout.flush()
     if len(average_psnrs)>0:
-        print("mean average psnr: {}, std over runs: {}".format(np.mean(average_psnrs), np.std(average_psnrs)))
+        print("mean average psnr: {}, std over averages: {}, mean psnr std: {}, std over stds: {}".format(
+                np.mean(average_psnrs), np.std(average_psnrs),
+                np.mean(std_psnrs), np.std(std_psnrs)))
         
     print('done.')
     sys.stdout.flush()
