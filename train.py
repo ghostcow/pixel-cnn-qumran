@@ -188,12 +188,13 @@ initializer = tf.global_variables_initializer()
 saver = tf.train.Saver()
 
 # turn numpy inputs into feed_dict for use with tensorflow
+# TODO: fix this up to make rotations here??
 def make_feed_dict(data, init=False):
-    if type(data) is tuple and len(data)==3:
-        x,m,k = data
+    if type(data) is tuple and len(data)==2:
+        x,m = data
         y = None
-    elif type(data) is tuple and len(data)==4:
-        x,y,m,k = data
+    elif type(data) is tuple and len(data)==3:
+        x,y,m = data
     else:
         x = data
         y = None

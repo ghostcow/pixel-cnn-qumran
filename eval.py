@@ -52,6 +52,8 @@ parser.add_argument('-t', '--color', dest='color', action='store_true', help='Co
 parser.add_argument('--polyak_decay', type=float, default=0.9995, help='Exponential decay rate of the sum of previous model iterates during Polyak averaging')
 parser.add_argument('-j', '--just_gen', dest='just_gen', action='store_true', help='Just generate samples without training.')
 parser.add_argument('-u', '--test', dest='test', action='store_true', help='Loading test samples (no labels).')
+parser.add_argument('-w', '--suffix', type=str, default='', help='Suffix for saved results')
+parser.add_argument('-v', '--adaptive_rotation', dest='adaptive_rotation', action='store_true', help='Adaptive rotation (for 4-way single model)')
 # reproducibility
 parser.add_argument('-s', '--seed', type=int, default=1, help='Random seed to use')
 args = parser.parse_args()
@@ -105,45 +107,32 @@ maintain_averages_op = tf.group(ema.apply(all_params))
 grads = []
 loss_gen = []
 loss_gen_test = []
+log_prob = []
 for i in range(args.nr_gpu):
     with tf.device('/gpu:%d' % i):
-        # train
-        gen_par = model(xs[i], hs[i], ema=None, dropout_p=args.dropout_p, **model_opt)
-        loss_gen.append(nn.discretized_mix_logistic_loss(xs[i], gen_par))
-        # gradients
-#        grads.append(tf.gradients(loss_gen[i], all_params))
         # test
         gen_par = model(xs[i], hs[i], ema=ema, dropout_p=0., **model_opt)
         loss_gen_test.append(nn.discretized_mix_logistic_loss(xs[i], gen_par))
+        # logprob
+        log_prob.append(nn.discretized_mix_logistic_loss(xs[i], gen_par, sum_all=False))
 
 # add losses and gradients together and get training updates
 tf_lr = tf.placeholder(tf.float32, shape=[])
 with tf.device('/gpu:0'):
     for i in range(1,args.nr_gpu):
-        loss_gen[0] += loss_gen[i]
         loss_gen_test[0] += loss_gen_test[i]
-#        for j in range(len(grads[0])):
-#            grads[0][j] += grads[i][j]
-    # training op
-#    optimizer = tf.group(nn.adam_updates(all_params, grads[0], lr=tf_lr, mom1=0.95, mom2=0.9995), maintain_averages_op)
 
 # convert loss to bits/dim
-bits_per_dim = loss_gen[0]/(args.nr_gpu*np.log(2.)*np.prod(obs_shape)*args.batch_size)
 bits_per_dim_test = loss_gen_test[0]/(args.nr_gpu*np.log(2.)*np.prod(obs_shape)*args.batch_size)
+neg_log_likelihood = tf.concat(log_prob, 0)
 
 # sample from the model
-new_x_gen = []
-for i in range(args.nr_gpu):
-    with tf.device('/gpu:%d' % i):
-        gen_par = model(xs[i], h_sample[i], ema=ema, dropout_p=0, **model_opt)
-        new_x_gen.append(nn.sample_from_discretized_mix_logistic(gen_par, args.nr_logistic_mix))
-def sample_from_model(sess, data, s=0):
-    #x_gen = [np.zeros((args.batch_size,) + obs_shape, dtype=np.float32) for i in range(args.nr_gpu)]
-    if args.test:
-        x_gen, masks = data
-    else:
-        x_gen, labels, masks = data
-    x_gen = np.cast[np.float32]((x_gen - 127.5) / 127.5) # input to pixelCNN is scaled from uint8 [0,255] to float in range [-1,1]
+def adaptive_rotation(x, y, m):
+    for j in range(len(y)):
+        x[j] = np.rot90(x[j], y[j])
+        m[j] = np.rot90(m[j], y[j])
+    return x, y, m
+#    x_gen = [np.zeros((args.batch_size,) + obs_shape, dtype=np.float32) for i in range(args.nr_gpu)]
 #    x_sample = np.rot90(x_gen[s], k=-k, axes=(0,1)).copy()
 #    m_sample = np.rot90(masks[s], k=-k, axes=(0,1)).copy()
 #    
@@ -157,11 +146,38 @@ def sample_from_model(sess, data, s=0):
 #            continue
 #        x_gen[i] = np.rot90(x_gen[i], k=k, axes=(0,1))
 #        masks[i] = np.rot90(masks[i], k=k, axes=(0,1))
+    
+    # first sample is the real sample
+#    x_gen[0] = x_sample
+    # rotate back
+#    x_gen = np.concatenate(x_gen, axis=0)
+#    x_gen_unrot = x_gen.copy()
+#    for i,k in enumerate(np.concatenate(y_sample, axis=0)):
+#        if i==0:
+#            continue
+#        x_gen_unrot[i] = np.rot90(x_gen_unrot[i], k=-k, axes=(0,1))
+
+new_x_gen = []
+for i in range(args.nr_gpu):
+    with tf.device('/gpu:%d' % i):
+        gen_par = model(xs[i], hs[i], ema=ema, dropout_p=0, **model_opt)
+        new_x_gen.append(nn.sample_from_discretized_mix_logistic(gen_par, args.nr_logistic_mix))
+def sample_from_model(sess, data):
+    x_gen, y, masks = data
+    x_gen = np.cast[np.float32]((x_gen - 127.5) / 127.5) # input to pixelCNN is scaled from uint8 [0,255] to float in range [-1,1]
+    if args.adaptive_rotation:
+        x_gen, y, masks = adaptive_rotation(x_gen, y, masks)
     x_gen = np.split(x_gen, args.nr_gpu)
     masks = np.split(masks, args.nr_gpu)
+    if args.class_conditional:
+        y = np.split(y, args.nr_gpu)
     for yi in range(obs_shape[0]):
         for xi in range(obs_shape[1]):
-            new_x_gen_np = sess.run(new_x_gen, {xs[i]: x_gen[i] for i in range(args.nr_gpu)})
+            feed_dict = {xs[i]: x_gen[i] for i in range(args.nr_gpu)}
+            if args.class_conditional:
+                feed_dict.update({ys[i]: y[i] for i in range(args.nr_gpu)})
+            new_x_gen_np = sess.run(new_x_gen, feed_dict)
+            
             for i in range(args.nr_gpu):
 #                x_gen[i][:,yi,xi,:] = new_x_gen_np[i][:,yi,xi,:]
                 x_gen[i][:,yi,xi,:] = new_x_gen_np[i][:,yi,xi,:]*(1-masks[i][:,yi,xi,:])+x_gen[i][:,yi,xi,:]*masks[i][:,yi,xi,:]
@@ -184,16 +200,10 @@ def sample_from_model(sess, data, s=0):
         x_gen[white_inds[...,1],1] = ((204 - 127.5) / 127.5)
         x_gen[white_inds[...,2],2] = ((0 - 127.5) / 127.5)
     
-    # first sample is the real sample
-#    x_gen[0] = x_sample
-    # rotate back
-#    x_gen = np.concatenate(x_gen, axis=0)
-#    x_gen_unrot = x_gen.copy()
-#    for i,k in enumerate(np.concatenate(y_sample, axis=0)):
-#        if i==0:
-#            continue
-#        x_gen_unrot[i] = np.rot90(x_gen_unrot[i], k=-k, axes=(0,1))
-    return x_gen #, x_gen_unrot, label
+    # twist pictures back
+    if args.adaptive_rotation:
+        x_gen, y, masks = adaptive_rotation(x_gen, -y, masks)    
+    return x_gen
 
 
 # init & save
@@ -203,10 +213,10 @@ saver = tf.train.Saver()
 # turn numpy inputs into feed_dict for use with tensorflow
 def make_feed_dict(data, init=False):
     if type(data) is tuple and len(data)==3:
-        x,m,k = data
+        x,m = data
         y = None
     elif type(data) is tuple and len(data)==4:
-        x,y,m,k = data
+        x,y,m = data
     else:
         x = data
         y = None
@@ -280,14 +290,14 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
 
         # if just generate, print out samples and quit
         if args.just_gen:
-            print_samples(gen_data[0][0])
+#            print_samples(gen_data[0][0])
             # save results
-            with open(os.path.join(args.save_dir,'generated_images.pkl'),'wb') as f:
+            with open(os.path.join(args.save_dir,'generated_images_{}.pkl'.format(int(datetime.now().timestamp()))),'wb') as f:
                 pkl.dump(gen_data,f)
             break
         else:
             # save results
-            with open(os.path.join(args.save_dir,'results_{}.pkl'.format(run)),'wb') as f:
+            with open(os.path.join(args.save_dir,'results_{}{}.pkl'.format(run, args.suffix)),'wb') as f:
                 pkl.dump(gen_data,f)
         
         # calculate mean average psnr

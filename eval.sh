@@ -17,8 +17,15 @@
 # python eval.py -o data/letters_data/checkpoints/3 -f 0 -r -g 4 -u | tee eval30.log && \
 # python eval.py -o data/letters_data/checkpoints/3 -f 1 -r -g 4 -u | tee eval31.log && \
 # python eval.py -o data/letters_data/checkpoints/3 -f 2 -r -g 4 -u | tee eval32.log
-python eval.py -o data/letters_data/checkpoints/1 -f 1 -r -g 4 -u -b 5 | tee adapt1.log && \
-python eval.py -o data/letters_data/checkpoints/2 -f 2 -r -g 4 -u -b 1 | tee adapt2.log && \
-python eval.py -o data/letters_data/checkpoints/3 -f 3 -r -g 4 -u -b 3 | tee adapt3.log && \
-python eval.py -o data/letters_data/checkpoints/0 -f 0 -r -g 4 -u -b 8 | tee adapt0.log
+# python eval.py -o data/letters_data/checkpoints/1 -f 1 -r -g 4 -u -b 5 | tee adapt1.log && \
+# python eval.py -o data/letters_data/checkpoints/2 -f 2 -r -g 4 -u -b 1 | tee adapt2.log && \
+# python eval.py -o data/letters_data/checkpoints/3 -f 3 -r -g 4 -u -b 3 | tee adapt3.log && \
+# python eval.py -o data/letters_data/checkpoints/0 -f 0 -r -g 4 -u -b 8 | tee adapt0.log
 
+python eval.py -i data/letters_data -o data/letters_data/checkpoints/rand -r -c -f 0 -v | tee adaptr.log && \
+python eval.py -i /home/lioruzan/tehilim_data/test_data -o data/letters_data/checkpoints/rand -r -c -f 0 -v -b 5 -j | tee test_adaptr.log && \
+python eval.py -i /home/lioruzan/tehilim_data/test_data -o data/letters_data/checkpoints/0 -f 0 -r -j -b 5 | tee test_gen00.log && \
+python eval.py -i /home/lioruzan/tehilim_data/test_data -o data/letters_data/checkpoints/0 -f 0 -r -j -u -b 5 | tee test_gen_adapt0.log && \
+python eval.py -i /home/lioruzan/tehilim_data/test_data -o data/letters_data/checkpoints/1 -f 1 -r -j -u -b 5 | tee test_gen_adapt1.log && \
+python eval.py -i /home/lioruzan/tehilim_data/test_data -o data/letters_data/checkpoints/2 -f 2 -r -j -u -b 5 | tee test_gen_adapt2.log && \
+python eval.py -i /home/lioruzan/tehilim_data/test_data -o data/letters_data/checkpoints/3 -f 3 -r -j -u -b 5 | tee test_gen_adapt3.log

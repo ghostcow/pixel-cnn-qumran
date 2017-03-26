@@ -52,8 +52,6 @@ class DataLoader(object):
         # load CIFAR-10 training data to RAM
         self.data, self.labels, self.masks = load(data_dir, subset=subset)
         
-        print(self.test,self.rotation)
-        
         if self.test and self.rotation is not None:
             inds = self.labels == self.rotation
             self.data = self.data[inds]
@@ -88,8 +86,7 @@ class DataLoader(object):
             inds = self.rng.permutation(self.data.shape[0])
             self.data = self.data[inds]
             self.masks = self.masks[inds]
-            if not self.test:
-                self.labels = self.labels[inds]
+            self.labels = self.labels[inds]
 
         # on last iteration reset the counter and raise StopIteration
         if self.p + n > self.data.shape[0]:
@@ -98,24 +95,18 @@ class DataLoader(object):
 
         # on intermediate iterations fetch the next batch
         x = self.data[self.p : self.p + n]
-        if not self.test:
-            y = self.labels[self.p : self.p + n]
+        y = self.labels[self.p : self.p + n]
         m = self.masks[self.p : self.p + n]
         self.p += self.batch_size
         
         # (randomly) rotate batch
         if self.rotation is None:
             k = np.random.randint(4)
-            if not self.test:
-                y.fill(k)
+            y.fill(k)
         else:
             k = self.rotation
         x = np.rot90(x, k=k, axes=(1,2))
         m = np.rot90(m, k=k, axes=(1,2))
         
-        if self.return_labels and not self.test:
-            return x,y,m
-        else:
-            return x,m
-
+        return x,y,m
     next = __next__  # Python 2 compatibility (https://stackoverflow.com/questions/29578469/how-to-make-an-object-both-a-python2-and-python3-iterator)
