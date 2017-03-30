@@ -65,7 +65,8 @@ class DataLoader(object):
         return self.data.shape[1:]
 
     def get_num_labels(self):
-        return np.amax(self.labels) + 1
+        return 4
+#        return np.amax(self.labels) + 1
 
     def set_batch_size(self, n):
         self.batch_size = n
