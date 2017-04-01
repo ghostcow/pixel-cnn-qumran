@@ -223,12 +223,17 @@ def make_feed_dict(data, init=False):
 # //////////// perform training //////////////
 if not os.path.exists(args.save_dir):
     os.makedirs(args.save_dir)
+# save hyperparms to file
+with open(os.path.join(args.save_dir,'hyperparams.txt'),'w') as f:
+    f.write(json.dumps(vars(args), indent=4, separators=(',',':')))
 print('starting training')
 test_bpd = []
 min_test_loss = np.inf
 test_loss_gen = np.inf
 lr = args.learning_rate
-gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8)
+config = tf.ConfigProto()
+config.gpu_options.allow_growth = True
+#gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8)
 
 # early stopping params
 patience = 150
@@ -239,7 +244,7 @@ stopped_epoch = 0
 best = np.Inf
 stop_training = False
 
-with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
+with tf.Session(config=config) as sess:
     for epoch in range(args.max_epochs):
         begin = time.time()
 
@@ -283,7 +288,7 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
             print("Iteration %d, time = %ds, train bits_per_dim = %.4f, test bits_per_dim = %.4f" % (epoch, time.time()-begin, train_loss_gen, test_loss_gen))
             sys.stdout.flush()
                    
-        if epoch % args.gen_interval == 0:# and epoch > 0:
+        if epoch % args.gen_interval == 0 and epoch > 0:
             # generate samples from the model
             print('generating samples from model...')
             data = test_data.next()
