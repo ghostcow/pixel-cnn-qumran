@@ -76,7 +76,7 @@ def model_spec(x, h=None, init=False, ema=None, dropout_p=0.5, nr_resnet=5, nr_f
                 u = nn.gated_resnet(u, u_list.pop(), conv=nn.down_shifted_conv2d)
                 ul = nn.gated_resnet(ul, tf.concat(axis=3, values=[u, ul_list.pop()]), conv=nn.down_right_shifted_conv2d)
 
-            x_out = nn.nin(tf.nn.elu(ul),10*nr_logistic_mix)
+            x_out = nn.nin(tf.nn.elu(ul),3*nr_logistic_mix)
 
             assert len(u_list) == 0
             assert len(ul_list) == 0

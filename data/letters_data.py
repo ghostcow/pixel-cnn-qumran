@@ -18,10 +18,10 @@ def unpickle(file):
 def load(data_dir, subset='train'):
     if subset=='train':
         train_data = unpickle(os.path.join(data_dir,'letters_train.pkl'))
-        return train_data['x'], train_data['y'], train_data['m']
+        return train_data['x'][...,0,np.newaxis], train_data['y'], train_data['m']
     elif subset=='test':
         test_data = unpickle(os.path.join(data_dir,'letters_test.pkl'))
-        return test_data['x'], test_data['y'], test_data['m']
+        return test_data['x'][...,0,np.newaxis], test_data['y'], test_data['m']
     else:
         raise NotImplementedError('subset should be either train or test')
 
@@ -99,15 +99,6 @@ class DataLoader(object):
         y = self.labels[self.p : self.p + n]
         m = self.masks[self.p : self.p + n]
         self.p += self.batch_size
-        
-        # (randomly) rotate batch
-        if self.rotation is None:
-            k = np.random.randint(4)
-            y.fill(k)
-        else:
-            k = self.rotation
-        x = np.rot90(x, k=k, axes=(1,2))
-        m = np.rot90(m, k=k, axes=(1,2))
-        
+
         return x,y,m
     next = __next__  # Python 2 compatibility (https://stackoverflow.com/questions/29578469/how-to-make-an-object-both-a-python2-and-python3-iterator)

@@ -164,6 +164,15 @@ for i in range(args.nr_gpu):
         new_x_gen.append(nn.sample_from_discretized_mix_logistic(gen_par, args.nr_logistic_mix))
 def sample_from_model(sess, data):
     x_gen, y, masks = data
+    ############################################
+    if args.rotation is None:
+        k = np.random.randint(4)
+        y.fill(k)
+    else:
+        k = args.rotation
+    x_gen = np.rot90(x_gen, k=k, axes=(1,2))
+    masks = np.rot90(masks, k=k, axes=(1,2))
+    ############################################
     x_gen = np.cast[np.float32]((x_gen - 127.5) / 127.5) # input to pixelCNN is scaled from uint8 [0,255] to float in range [-1,1]
     if args.adaptive_rotation:
         x_gen, y, masks = adaptive_rotation(x_gen, y, masks)
@@ -221,6 +230,15 @@ def make_feed_dict(data, init=False):
         x = data
         y = None
     x = np.cast[np.float32]((x - 127.5) / 127.5) # input to pixelCNN is scaled from uint8 [0,255] to float in range [-1,1]
+    # TODO: fix this, sort this out this is a terrible dichotomy, must consider flips
+    # TODO: also support encoded labels
+    if args.rotation is None:
+        k = np.random.randint(4)
+        y.fill(k)
+    else:
+        k = args.rotation
+    x = np.rot90(x, k=k, axes=(1,2))
+    m = np.rot90(m, k=k, axes=(1,2))
     
     if init:
         feed_dict = {x_init: x}

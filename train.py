@@ -188,7 +188,6 @@ initializer = tf.global_variables_initializer()
 saver = tf.train.Saver()
 
 # turn numpy inputs into feed_dict for use with tensorflow
-# TODO: fix this up to make rotations here??
 def make_feed_dict(data, init=False):
     if type(data) is tuple and len(data)==2:
         x,m = data
@@ -199,18 +198,24 @@ def make_feed_dict(data, init=False):
         x = data
         y = None
     x = np.cast[np.float32]((x - 127.5) / 127.5) # input to pixelCNN is scaled from uint8 [0,255] to float in range [-1,1]
-    # make y the orientation label
-#    y = np.zeros_like(y)
-#    y.fill(k)
+    
+    # TODO: FIX THIS!!!! (randomly) rotate batch 
+    if args.rotation is None:
+        k = np.random.randint(4)
+        y.fill(k)
+    else:
+        k = args.rotation
+    x = np.rot90(x, k=k, axes=(1,2))
+    m = np.rot90(m, k=k, axes=(1,2))
     
     if init:
         feed_dict = {x_init: x}
-        if y is not None:
+        if y is not None and args.class_conditional:
             feed_dict.update({y_init: y})
     else:
         x = np.split(x, args.nr_gpu)
         feed_dict = {xs[i]: x[i] for i in range(args.nr_gpu)}
-        if y is not None:
+        if y is not None and args.class_conditional:
             y = np.split(y, args.nr_gpu)
             feed_dict.update({ys[i]: y[i] for i in range(args.nr_gpu)})
     return feed_dict
@@ -226,7 +231,7 @@ lr = args.learning_rate
 gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8)
 
 # early stopping params
-patience = 100
+patience = 150
 min_delta = 0
 min_delta *= -1
 wait = 0
@@ -278,14 +283,14 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
             print("Iteration %d, time = %ds, train bits_per_dim = %.4f, test bits_per_dim = %.4f" % (epoch, time.time()-begin, train_loss_gen, test_loss_gen))
             sys.stdout.flush()
                    
-        if epoch % args.gen_interval == 0 and epoch > 0:
+        if epoch % args.gen_interval == 0:# and epoch > 0:
             # generate samples from the model
             print('generating samples from model...')
             data = test_data.next()
             test_data.reset()
 
             def print_samples(sample_x, suffix=''):
-                img_tile = plotting.img_tile(sample_x[:int(np.floor(np.sqrt(args.batch_size*args.nr_gpu))**2)], aspect_ratio=1.0, border_color=1.0, stretch=True)
+                img_tile = plotting.img_tile(sample_x[:int(np.floor(np.sqrt(args.batch_size*args.nr_gpu))**2)], aspect_ratio=1.0, border_color=1.0, stretch=True).squeeze()
                 img = plotting.plot_img(img_tile, title=args.data_set + ' samples')
                 plotting.plt.savefig(os.path.join(args.save_dir,'%s_sample%d%s.png' % (args.data_set, epoch, suffix)))
                 plotting.plt.close('all')
