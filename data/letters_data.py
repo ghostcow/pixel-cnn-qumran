@@ -57,6 +57,9 @@ class DataLoader(object):
             self.data = self.data[inds]
             self.labels = self.labels[inds]
             self.masks = self.masks[inds]
+        elif self.test and self.rotation is None:
+            print('Error!!! Cannot test without specifying rotation!!')
+            sys.exit(-1)
         
         self.p = 0 # pointer to where we are in iteration
         self.rng = np.random.RandomState(1) if rng is None else rng
@@ -65,7 +68,7 @@ class DataLoader(object):
         return self.data.shape[1:]
 
     def get_num_labels(self):
-        return 4
+        return 8
 #        return np.amax(self.labels) + 1
 
     def set_batch_size(self, n):

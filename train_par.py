@@ -138,12 +138,15 @@ bits_per_dim_test = [loss_gen_test[i]/(np.log(2.)*np.prod(obs_shape)*args.batch_
 
 # sample from the model
 new_x_gen = []
-for i in range(args.nr_gpu):
+for i in range(1):
     with tf.device('/gpu:%d' % i):
-        gen_par = model(xs[i], h_sample[i], ema=ema, dropout_p=0, **model_opt)
-        new_x_gen.append(nn.sample_from_discretized_mix_logistic(gen_par, args.nr_logistic_mix))
+        for j in range(2):
+            k = 2*i+j
+            with tf.variable_scope('model%d' % k, reuse=True):  
+                gen_par = model(xs[i], h_sample[i], ema=ema, dropout_p=0, **model_opt)
+                new_x_gen.append(nn.sample_from_discretized_mix_logistic(gen_par, args.nr_logistic_mix))
 def sample_from_model(sess, data, s=0):
-    x_gen = [np.zeros((args.batch_size,) + obs_shape, dtype=np.float32) for i in range(args.nr_gpu)]
+    x_gen = [np.zeros((args.batch_size,) + obs_shape, dtype=np.float32) for i in range(args.nr_gpu*2)]
 #    x_gen, labels, masks, k = data
 #    x_gen = np.cast[np.float32]((x_gen - 127.5) / 127.5) # input to pixelCNN is scaled from uint8 [0,255] to float in range [-1,1]
 #    x_sample = np.rot90(x_gen[s], k=-k, axes=(0,1)).copy()
@@ -163,7 +166,7 @@ def sample_from_model(sess, data, s=0):
 #    masks = np.split(masks, args.nr_gpu)
     for yi in range(obs_shape[0]):
         for xi in range(obs_shape[1]):
-            new_x_gen_np = sess.run(new_x_gen, {xs[i]: x_gen[i] for i in range(args.nr_gpu)})
+            new_x_gen_np = sess.run(new_x_gen, {xs[i]: x_gen[i] for i in range(args.nr_gpu*2)})
             for i in range(args.nr_gpu):
                 x_gen[i][:,yi,xi,:] = new_x_gen_np[i][:,yi,xi,:]
 #                x_gen[i][:,yi,xi,:] = new_x_gen_np[i][:,yi,xi,:]*(1-masks[i][:,yi,xi,:])+x_gen[i][:,yi,xi,:]*masks[i][:,yi,xi,:]
@@ -218,11 +221,11 @@ def make_feed_dict(data, init=False):
         if y is not None and args.class_conditional:
             feed_dict.update({y_init: y})
     else:
-        x = np.split(x, args.nr_gpu)
-        feed_dict = {xs[i]: x[i] for i in range(args.nr_gpu)}
+        x = np.split(x, args.nr_gpu*2)
+        feed_dict = {xs[i]: x[i] for i in range(args.nr_gpu*2)}
         if y is not None and args.class_conditional:
             y = np.split(y, args.nr_gpu)
-            feed_dict.update({ys[i]: y[i] for i in range(args.nr_gpu)})
+            feed_dict.update({ys[i]: y[i] for i in range(args.nr_gpu*2)})
     return feed_dict
 
 # //////////// perform training //////////////
