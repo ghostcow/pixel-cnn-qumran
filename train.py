@@ -38,6 +38,7 @@ parser.add_argument('-m', '--nr_logistic_mix', type=int, default=10, help='Numbe
 parser.add_argument('-z', '--resnet_nonlinearity', type=str, default='concat_elu', help='Which nonlinearity to use in the ResNet layers. One of "concat_elu", "elu", "relu" ')
 parser.add_argument('-c', '--class_conditional', dest='class_conditional', action='store_true', help='Condition generative model on labels?')
 parser.add_argument('-f', '--rotation', type=int, default=None, help='Force uniform rotation of angle n*90 degrees counter-clockwise.')
+parser.add_argument('-u', '--randomize_labels', dest='randomize_labels', action='store_true', help='Randomize labels')
 # optimization
 parser.add_argument('-l', '--learning_rate', type=float, default=0.001, help='Base learning rate')
 parser.add_argument('-e', '--lr_decay', type=float, default=0.999995, help='Learning rate decay, applied every step of the optimization')
@@ -155,17 +156,20 @@ def flip_rotate(x, y):
     '''
     flips and/or rotates a single image according to label y
     y is encoded to represent flips and rotations
-    y \in {0..7}
-    flip indicator = y // 4
+    y \in {0..7} or y \in {-7..-1} for reversing rotations\flips
+    flip indicator = y // 4 ( or y <= -4 in the negative case )
     rotation angle = (y % 4) * 90 degrees
+    because of dihedral group D4 structure, in some cases the order of flip/rotation
+    matters, and is dealt with accordingly.
     '''
-    flip = y // 4
-    if flip == 1:
+    if y // 4 == 1 or y == -4 or y == -6:
         x = np.flip(x, len(x.shape)-2)
     if len(x.shape) == 4:
         x = np.rot90(x, k= y % 4, axes=(1,2))
     else:
-        x = np.rot90(x, k= y % 4)#, axes=(1,2))
+        x = np.rot90(x, k= y % 4)
+    if y == -5 or y == -7:
+        x = np.flip(x, len(x.shape)-2)
     return x
 
 def adaptive_rotation(x, y):
@@ -187,6 +191,17 @@ def make_feed_dict(data, init=False):
         x = adaptive_rotation(x, args.rotation)
     elif type(data) is tuple and len(data)==3:
         x,y,m = data
+        x = adaptive_rotation(x, y)
+    
+    # randomize labels by selecting one random label per batch, unrotate and 
+    # unflip if necessary
+    if args.randomize_labels:        
+        if y is not None:
+            x = adaptive_rotation(x, -y)
+            y = np.zeros_like(y)
+        else:
+            y = np.zeros(x.shape[0], dtype=np.int32)
+        y.fill(np.random.randint(8))
         x = adaptive_rotation(x, y)
 
     x = np.cast[np.float32]((x - 127.5) / 127.5) # input to pixelCNN is scaled from uint8 [0,255] to float in range [-1,1]
