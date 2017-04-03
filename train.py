@@ -194,18 +194,15 @@ def make_feed_dict(data, init=False, test=False):
     # randomize labels by selecting one random label per batch, unrotate and 
     # unflip if necessary
     if args.randomize_labels and test is not True:        
-        if y is not None:
-            x = adaptive_rotation(x, -y)
-            y = np.zeros_like(y)
-        else:
-            y = np.zeros(x.shape[0], dtype=np.int32)
+        x = adaptive_rotation(x, -args.rotation)
+        y = np.zeros(x.shape[0], dtype=np.int32)
         y.fill(np.random.randint(8))
         x = adaptive_rotation(x, y)
 
     x = np.cast[np.float32]((x - 127.5) / 127.5) # input to pixelCNN is scaled from uint8 [0,255] to float in range [-1,1]
     
     if init:
-        if args.randomize_labels and y is not None:
+        if args.randomize_labels and test is not True: # in case y is some const
             x = adaptive_rotation(x, -y)
             y = np.arange(x.shape[0]) % 8
             x = adaptive_rotation(x, y)
@@ -215,7 +212,7 @@ def make_feed_dict(data, init=False, test=False):
     else:
         x = np.split(x, args.nr_gpu)
         feed_dict = {xs[i]: x[i] for i in range(args.nr_gpu)}
-        if y is not None and args.class_conditional:
+        if args.class_conditional:
             y = np.split(y, args.nr_gpu)
             feed_dict.update({ys[i]: y[i] for i in range(args.nr_gpu)})
     return feed_dict
