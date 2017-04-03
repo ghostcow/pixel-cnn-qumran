@@ -35,6 +35,7 @@ class DataLoader(object):
         - subset is train|test 
         - batch_size is int, of #examples to load at once
         - rng is np.random.RandomState object for reproducibility
+        self.test demands labels
         """
 
         self.data_dir = data_dir
@@ -90,7 +91,8 @@ class DataLoader(object):
             inds = self.rng.permutation(self.data.shape[0])
             self.data = self.data[inds]
             self.masks = self.masks[inds]
-            self.labels = self.labels[inds]
+            if self.labels is not None:
+                self.labels = self.labels[inds]
 
         # on last iteration reset the counter and raise StopIteration
         if self.p + n > self.data.shape[0]:
@@ -99,9 +101,13 @@ class DataLoader(object):
 
         # on intermediate iterations fetch the next batch
         x = self.data[self.p : self.p + n]
-        y = self.labels[self.p : self.p + n]
+        if self.labels is not None:
+            y = self.labels[self.p : self.p + n]
         m = self.masks[self.p : self.p + n]
         self.p += self.batch_size
-
-        return x,y,m
+        
+        if self.labels is not None:
+            return x,y,m
+        else:
+            return x,m
     next = __next__  # Python 2 compatibility (https://stackoverflow.com/questions/29578469/how-to-make-an-object-both-a-python2-and-python3-iterator)
