@@ -213,7 +213,7 @@ def make_feed_dict(data, init=False, test=False):
         x = np.split(x, args.nr_gpu)
         feed_dict = {xs[i]: x[i] for i in range(args.nr_gpu)}
         if args.class_conditional:
-            y = np.zeros(x.shape[0], dtype=np.int32)
+            y = np.zeros(args.batch_size * args.nr_gpu, dtype=np.int32)
             y.fill(args.rotation)
             y = np.split(y, args.nr_gpu)
             feed_dict.update({ys[i]: y[i] for i in range(args.nr_gpu)})
