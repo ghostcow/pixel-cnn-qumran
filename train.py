@@ -298,9 +298,11 @@ with tf.Session(config=config) as sess:
             
         # save params via early stopping
         current = test_loss_gen
+        current_train = train_loss_gen
 
         if np.less(current - min_delta, best):
             best = current
+            best_train = current_train
             wait = 0
             print('Saving model params...', end='')
             saver.save(sess, args.save_dir + '/params_' + args.data_set + '.ckpt')
@@ -310,6 +312,7 @@ with tf.Session(config=config) as sess:
             if wait >= patience:
                 stopped_epoch = epoch
                 print('Epoch %05d: early stopping' % (stopped_epoch))
+                print("Best iteration: %d, train bits_per_dim = %.4f, test bits_per_dim = %.4f" % (stopped_epoch, best_train, best))
                 stop_training = True
             wait += 1
             
