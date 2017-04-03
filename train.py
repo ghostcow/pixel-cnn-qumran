@@ -181,7 +181,7 @@ def adaptive_rotation(x, y):
     return x
 
 # turn numpy inputs into feed_dict for use with tensorflow
-def make_feed_dict(data, init=False):
+def make_feed_dict(data, init=False, test=False):
     '''
     contract: if no labels then rotation must be specified
     '''
@@ -189,13 +189,11 @@ def make_feed_dict(data, init=False):
         x,m = data
         y = None
         x = adaptive_rotation(x, args.rotation)
-    elif type(data) is tuple and len(data)==3:
-        x,y,m = data
-        x = adaptive_rotation(x, y)
+            
     
     # randomize labels by selecting one random label per batch, unrotate and 
     # unflip if necessary
-    if args.randomize_labels:        
+    if args.randomize_labels and test is not True:        
         if y is not None:
             x = adaptive_rotation(x, -y)
             y = np.zeros_like(y)
@@ -207,6 +205,10 @@ def make_feed_dict(data, init=False):
     x = np.cast[np.float32]((x - 127.5) / 127.5) # input to pixelCNN is scaled from uint8 [0,255] to float in range [-1,1]
     
     if init:
+        if args.randomize_labels:
+            x = adaptive_rotation(x, -y)
+            y = np.arange(x.shape[0]) % 8
+            x = adaptive_rotation(x, y)
         feed_dict = {x_init: x}
         if y is not None and args.class_conditional:
             feed_dict.update({y_init: y})
@@ -273,7 +275,7 @@ with tf.Session(config=config) as sess:
         # compute likelihood over test data
         test_losses = []
         for d in test_data:
-            feed_dict = make_feed_dict(d)
+            feed_dict = make_feed_dict(d, test=True)
             l = sess.run(bits_per_dim_test, feed_dict)
             test_losses.append(l)
         test_loss_gen = np.mean(test_losses)

@@ -106,8 +106,5 @@ class DataLoader(object):
         m = self.masks[self.p : self.p + n]
         self.p += self.batch_size
         
-        if self.labels is not None:
-            return x,y,m
-        else:
-            return x,m
+        return x,m
     next = __next__  # Python 2 compatibility (https://stackoverflow.com/questions/29578469/how-to-make-an-object-both-a-python2-and-python3-iterator)
