@@ -205,7 +205,7 @@ def make_feed_dict(data, init=False, test=False):
     x = np.cast[np.float32]((x - 127.5) / 127.5) # input to pixelCNN is scaled from uint8 [0,255] to float in range [-1,1]
     
     if init:
-        if args.randomize_labels:
+        if args.randomize_labels and y is not None:
             x = adaptive_rotation(x, -y)
             y = np.arange(x.shape[0]) % 8
             x = adaptive_rotation(x, y)
