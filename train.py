@@ -162,7 +162,10 @@ def flip_rotate(x, y):
     flip = y // 4
     if flip == 1:
         x = np.flip(x, len(x.shape)-2)
-    x = np.rot90(x, k= y % 4)
+    if len(x.shape) == 4:
+        x = np.rot90(x, k= y % 4, axes=(1,2))
+    else:
+        x = np.rot90(x, k= y % 4)#, axes=(1,2))
     return x
 
 def adaptive_rotation(x, y):
