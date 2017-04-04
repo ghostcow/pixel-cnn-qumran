@@ -70,6 +70,11 @@ if args.data_set == 'imagenet' and args.class_conditional:
     raise("We currently don't have labels for the small imagenet data set")
 DataLoader = {'cifar':cifar10_data.DataLoader, 'imagenet':imagenet_data.DataLoader, 'letters':letters_data.DataLoader}[args.data_set]
 test_data = DataLoader(args.data_dir, 'test', args.batch_size * args.nr_gpu, shuffle=False, return_labels=args.class_conditional, rotation=args.rotation, test=args.test)
+
+# update batch_size to facilitate full use of samples
+if args.test and args.rotation is not None:
+    args.batch_size = test_data.get_batch_size()
+
 obs_shape = test_data.get_observation_size() # e.g. a tuple (32,32,3)
 assert len(obs_shape) == 3, 'assumed right now'
 
@@ -196,7 +201,6 @@ def sample_from_model(sess, x_gen, y, masks):
     
     x_gen = np.cast[np.float32]((x_gen - 127.5) / 127.5) # input to pixelCNN is scaled from uint8 [0,255] to float in range [-1,1]
     x_gen = np.split(x_gen, args.nr_gpu)
-    y = np.split(y, args.nr_gpu)
     masks = np.split(masks, args.nr_gpu)
     
     if args.class_conditional:
@@ -341,18 +345,18 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
             # twist pictures back
             for j in range(len(y)):
                 sample_x[j] = flip_rotate(sample_x[j], -y[j])
-                x = flip_rotate(x[j], -y[j])
+                x[j] = flip_rotate(x[j], -y[j])
             gen_data.append((sample_x, x, m, sample_prob))
 
         # if just generate, print out samples and quit
-        if args.just_gen:
+        if args.just_gen or args.color:
+            if args.color:
+                args.suffix += '_colored'
             # save results
-            with open(os.path.join(args.save_dir,'generated_images_{}.pkl'.format(int(datetime.now().timestamp()))),'wb') as f:
+            with open(os.path.join(args.save_dir,'generated_images_{}{}.pkl'.format(int(datetime.now().timestamp()), args.suffix)),'wb') as f:
                 pkl.dump(gen_data,f)
             break
         else:
-            if args.color:
-                args.suffix += '_colored'
             # save results
             with open(os.path.join(args.save_dir,'results_{}{}.pkl'.format(run, args.suffix)),'wb') as f:
                 pkl.dump(gen_data,f)

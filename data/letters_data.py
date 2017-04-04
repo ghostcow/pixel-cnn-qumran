@@ -3,6 +3,7 @@
 import os
 import sys
 import numpy as np
+from scipy.ndimage import measurements as me
 
 def unpickle(file):
     fo = open(file, 'rb')
@@ -66,7 +67,7 @@ class DataLoader(object):
         - subset is train|test 
         - batch_size is int, of #examples to load at once
         - rng is np.random.RandomState object for reproducibility
-        self.test demands labels
+        - self.test indicates if we are in adaptive rotation mode with single model per rotation or not
         """
 
         self.data_dir = data_dir
@@ -89,6 +90,9 @@ class DataLoader(object):
             inds = (y == self.rotation)
             self.data = self.data[inds]
             self.masks = self.masks[inds]
+            self.batch_size = len(self.data)
+            print('loaded {} samples in orientation {}.'.format(
+                    len(self.data), self.rotation))
         
         self.p = 0 # pointer to where we are in iteration
         self.rng = np.random.RandomState(1) if rng is None else rng
@@ -103,6 +107,9 @@ class DataLoader(object):
         self.batch_size = n
         return
 
+    def get_batch_size(self):
+        return self.batch_size
+    
     def reset(self):
         self.p = 0
 
