@@ -17,6 +17,7 @@ import pickle as pkl
 
 import numpy as np
 import tensorflow as tf
+from scipy.ndimage import measurements as me
 
 import pixel_cnn_pp.nn as nn
 import pixel_cnn_pp.plotting as plotting
@@ -124,62 +125,83 @@ with tf.device('/gpu:0'):
 
 # convert loss to bits/dim
 bits_per_dim_test = loss_gen_test[0]/(args.nr_gpu*np.log(2.)*np.prod(obs_shape)*args.batch_size)
-neg_log_likelihood = tf.concat(log_prob, 0)
+#log_prob = tf.concat(log_prob, 0)
+
+def get_orientations(ms):
+    o = np.zeros(len(ms), dtype=np.int32) # orientations
+    for i, m in enumerate(ms):
+        m = m[:,:,0]
+        y,x = me.center_of_mass(m)
+        # center coordinates
+        y -= 15.5
+        x -= 15.5
+        # fill o with optimal orientation for each mask, to maximize exposure
+        # of known information (1s in the mask) to PixelCNN
+        if y>=0 and x>=0:
+            if y>x:
+                o[i] = 2 # 2 rotations
+            elif y<=x:
+                o[i] = 7 # flip + 3 rotations
+        elif y>=0 and x<0:
+            if y>=-x:
+                o[i] = 6 # flip + 2 rotations
+            elif y<-x:
+                o[i] = 3 # 3 rotations
+        elif y<0 and x<0:
+            if y>=x:
+                o[i] = 5 # flip + 1 rotations
+            elif y<x:
+                o[i] = 0 # no flips or rotations, this is optimal
+        elif y<0 and x>=0:
+            if y>=-x:
+                o[i] = 4 # just flip no rotation needed
+            if y<-x:
+                o[i] = 1 # one rotation
+    return o
+
+def flip_rotate(x, y):
+    '''
+    flips and/or rotates a single image according to label y
+    y is encoded to represent flips and rotations
+    y \in {0..7} or y \in {-7..-1} for reversing rotations\flips
+    flip indicator = y // 4 ( or y <= -4 in the negative case )
+    rotation angle = (y % 4) * 90 degrees
+    because of dihedral group D4 structure, in some cases the order of flip/rotation
+    matters, and is dealt with accordingly.
+    '''
+    if y // 4 == 1 or y == -4 or y == -6:
+        x = np.flip(x, len(x.shape)-2)
+    if len(x.shape) == 4:
+        x = np.rot90(x, k= y % 4, axes=(1,2))
+    else:
+        x = np.rot90(x, k= y % 4)
+    if y == -5 or y == -7:
+        x = np.flip(x, len(x.shape)-2)
+    return x
 
 # sample from the model
-def adaptive_rotation(x, y, m):
+def adaptive_rotation(data):
+    x, m = data
+    y = get_orientations(m)
     for j in range(len(y)):
-        x[j] = np.rot90(x[j], y[j])
-        m[j] = np.rot90(m[j], y[j])
+        x[j] = flip_rotate(x[j], y[j])
     return x, y, m
-#    x_gen = [np.zeros((args.batch_size,) + obs_shape, dtype=np.float32) for i in range(args.nr_gpu)]
-#    x_sample = np.rot90(x_gen[s], k=-k, axes=(0,1)).copy()
-#    m_sample = np.rot90(masks[s], k=-k, axes=(0,1)).copy()
-#    
-#    label = labels[s]
-
-
-#    x_gen[:,...] = x_sample
-#    masks[:,...] = m_sample
-#    for i,k in enumerate(np.concatenate(y_sample, axis=0)):
-#        if i==0:
-#            continue
-#        x_gen[i] = np.rot90(x_gen[i], k=k, axes=(0,1))
-#        masks[i] = np.rot90(masks[i], k=k, axes=(0,1))
-    
-    # first sample is the real sample
-#    x_gen[0] = x_sample
-    # rotate back
-#    x_gen = np.concatenate(x_gen, axis=0)
-#    x_gen_unrot = x_gen.copy()
-#    for i,k in enumerate(np.concatenate(y_sample, axis=0)):
-#        if i==0:
-#            continue
-#        x_gen_unrot[i] = np.rot90(x_gen_unrot[i], k=-k, axes=(0,1))
 
 new_x_gen = []
 for i in range(args.nr_gpu):
     with tf.device('/gpu:%d' % i):
         gen_par = model(xs[i], hs[i], ema=ema, dropout_p=0, **model_opt)
         new_x_gen.append(nn.sample_from_discretized_mix_logistic(gen_par, args.nr_logistic_mix))
-def sample_from_model(sess, data):
-    x_gen, y, masks = data
-    ############################################
-    if args.rotation is None:
-        k = np.random.randint(4)
-        y.fill(k)
-    else:
-        k = args.rotation
-    x_gen = np.rot90(x_gen, k=k, axes=(1,2))
-    masks = np.rot90(masks, k=k, axes=(1,2))
-    ############################################
+def sample_from_model(sess, x_gen, y, masks):
+    
     x_gen = np.cast[np.float32]((x_gen - 127.5) / 127.5) # input to pixelCNN is scaled from uint8 [0,255] to float in range [-1,1]
-    if args.adaptive_rotation:
-        x_gen, y, masks = adaptive_rotation(x_gen, y, masks)
     x_gen = np.split(x_gen, args.nr_gpu)
+    y = np.split(y, args.nr_gpu)
     masks = np.split(masks, args.nr_gpu)
+    
     if args.class_conditional:
         y = np.split(y, args.nr_gpu)
+    
     for yi in range(obs_shape[0]):
         for xi in range(obs_shape[1]):
             feed_dict = {xs[i]: x_gen[i] for i in range(args.nr_gpu)}
@@ -188,9 +210,8 @@ def sample_from_model(sess, data):
             new_x_gen_np = sess.run(new_x_gen, feed_dict)
             
             for i in range(args.nr_gpu):
-#                x_gen[i][:,yi,xi,:] = new_x_gen_np[i][:,yi,xi,:]
                 x_gen[i][:,yi,xi,:] = new_x_gen_np[i][:,yi,xi,:]*(1-masks[i][:,yi,xi,:])+x_gen[i][:,yi,xi,:]*masks[i][:,yi,xi,:]
-#    return np.concatenate(x_gen, axis=0)
+
     x_gen = np.concatenate(x_gen, axis=0)
     masks = np.concatenate(masks, axis=0)
     if args.color:
@@ -199,6 +220,8 @@ def sample_from_model(sess, data):
         #yellow: 255 204 0
         #grey: 153 153 153
         """
+        x_gen = x_gen.repeat(3, 3)
+        masks = masks.repeat(3, 3)
         # color black fill-in as red, white fill-in as green
         black_inds = ( (x_gen)*(1-masks) == -1 )
         white_inds = np.cast[np.bool]( (~black_inds)*(1-masks) )
@@ -208,12 +231,17 @@ def sample_from_model(sess, data):
         x_gen[white_inds[...,0],0] = ((255 - 127.5) / 127.5)
         x_gen[white_inds[...,1],1] = ((204 - 127.5) / 127.5)
         x_gen[white_inds[...,2],2] = ((0 - 127.5) / 127.5)
-    
-    # twist pictures back
-    if args.adaptive_rotation:
-        x_gen, y, masks = adaptive_rotation(x_gen, -y, masks)    
-    return x_gen
 
+    # NOTE: images are still twisted at this point    
+    return x_gen, y
+
+
+def get_likelihood(sess, x, y):
+    x = np.split(x, args.nr_gpu)
+    feed_dict = {xs[i]: x_gen[i] for i in range(args.nr_gpu)}
+            if args.class_conditional:
+                feed_dict.update({ys[i]: y[i] for i in range(args.nr_gpu)})
+            new_x_gen_np = sess.run(new_x_gen, feed_dict)
 
 # init & save
 initializer = tf.initialize_all_variables()
@@ -252,6 +280,7 @@ def make_feed_dict(data, init=False):
             feed_dict.update({ys[i]: y[i] for i in range(args.nr_gpu)})
     return feed_dict
 
+
 # //////////// perform training //////////////
 if not os.path.exists(args.save_dir):
     os.makedirs(args.save_dir)
@@ -275,22 +304,9 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
         print("error, can't evaluate without loading params.")
         sys.exit(-1)
 
-    # compute likelihood over test data
-#    test_losses = []
-#    for d in test_data:
-#        feed_dict = make_feed_dict(d)
-#        l = sess.run(bits_per_dim_test, feed_dict)
-#        test_losses.append(l)
-#    test_loss_gen = np.mean(test_losses)
-#
-#    # log progress to console
-#    print("Time = %ds, test bits_per_dim = %.4f" % (time.time()-begin, test_loss_gen))
-#    sys.stdout.flush()
-
-
     def print_samples(sample_x):
         img_tile = plotting.img_tile(sample_x[:int(np.floor(np.sqrt(args.batch_size*args.nr_gpu))**2)], aspect_ratio=1.0, border_color=1.0, stretch=True)
-        img = plotting.plot_img(img_tile, title=args.data_set + ' samples')
+        plotting.plot_img(img_tile, title=args.data_set + ' samples')
         plotting.plt.savefig(os.path.join(args.save_dir,'%s_sample%s.png' % (args.data_set, int(datetime.now().timestamp()))))
         plotting.plt.close('all')
     
@@ -299,16 +315,28 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
     sys.stdout.flush()
     average_psnrs=[]
     std_psnrs=[]
-    for run in range(10):
+    for run in range(20):
         gen_data = []
         # generate samples from the model
-        for data in test_data:                
-            sample_x = sample_from_model(sess, data)                
-            gen_data.append((sample_x, data))                
+        for data in test_data:
+            # rotate/flip data for model, and create appropriate labels
+            if args.adaptive_rotation:
+                x, y, m = adaptive_rotation(data)
+            else:
+                x, m = data
+                y = np.zeros(x_gen.shape[0], dtype=np.int32)
+                y.fill(args.rotation)
+                x = flip_rotate(x, args.rotation)
+            sample_x, y = sample_from_model(sess, x, y, m)
+            sample_prob = get_likelihood(sess, sample_x, y)
+            # twist pictures back
+            for j in range(len(y)):
+                sample_x[j] = flip_rotate(sample_x[j], -y[j])
+                x = flip_rotate(x[j], -y[j])
+            gen_data.append((sample_x, x, m, sample_prob))
 
         # if just generate, print out samples and quit
         if args.just_gen:
-#            print_samples(gen_data[0][0])
             # save results
             with open(os.path.join(args.save_dir,'generated_images_{}.pkl'.format(int(datetime.now().timestamp()))),'wb') as f:
                 pkl.dump(gen_data,f)
@@ -320,13 +348,13 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
         
         # calculate mean average psnr
         psnrs=[]
-        for o, data in gen_data:
+        for sample_x, x, _, _ in gen_data:
             # calculate per-picture psnr
-            for i in range(o.shape[0]):
+            for i in range(x.shape[0]):
                 #change to 0..255
-                x = 127.5 * o[i] + 127.5
-                y = data[0][i]
-                mse = np.sum( np.power(x-y,2) ) / np.prod( x.shape )
+                a = np.round(127.5 * sample_x[i] + 127.5)
+                b = x[i]
+                mse = np.sum( np.power(a-b,2) ) / np.prod( a.shape )
                 psnr = 20 * ( np.log10(255) - np.log10(np.sqrt(mse)) )
                 psnrs.append(psnr)
         psnr_avg, psnr_std = np.mean(psnrs), np.std(psnrs)

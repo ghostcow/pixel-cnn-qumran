@@ -18,10 +18,10 @@ def unpickle(file):
 def load(data_dir, subset='train'):
     if subset=='train':
         train_data = unpickle(os.path.join(data_dir,'letters_train.pkl'))
-        return train_data['x'][...,0,np.newaxis], train_data['y'], train_data['m']
+        return train_data['x'][...,0,np.newaxis], train_data['y'], train_data['m'][...,0,np.newaxis]
     elif subset=='test':
         test_data = unpickle(os.path.join(data_dir,'letters_test.pkl'))
-        return test_data['x'][...,0,np.newaxis], test_data['y'], test_data['m']
+        return test_data['x'][...,0,np.newaxis], test_data['y'], test_data['m'][...,0,np.newaxis]
     else:
         raise NotImplementedError('subset should be either train or test')
 
