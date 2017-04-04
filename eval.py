@@ -325,7 +325,7 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
     for run in range(1):
         gen_data = []
         # generate samples from the model
-        for data in test_data:
+        for data in tqdm(test_data):
             # rotate/flip data for model, and create appropriate labels
             if args.adaptive_rotation and args.rotation is None:
                 x, y, m = adaptive_rotation(data)

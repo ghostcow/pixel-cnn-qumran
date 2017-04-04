@@ -94,21 +94,23 @@ class DataLoader(object):
             inds = (y == self.rotation)
             self.data = self.data[inds]
             self.masks = self.masks[inds]
-            csz = len(self.data)
-            sz = csz + (self.batch_size - csz % self.batch_size )
-            psz = [sz] + list(self.masks.shape[1:])
-            # what the actual fuck
-            zmasks = np.cast[self.masks.dtype](np.zeros(psz))
-            zmasks[:csz] = self.masks
-            self.masks = zmasks
             
-            zdata = np.cast[self.data.dtype](np.zeros(psz))
-            zdata[:csz] = self.data
-            self.data = zdata
-            
-            self.size = csz
-            print('loaded {} samples in orientation {}.'.format(
-                    len(self.data), self.rotation))
+        # padding!!
+        csz = len(self.data)
+        sz = csz + (self.batch_size - csz % self.batch_size )
+        psz = [sz] + list(self.masks.shape[1:])
+
+        zmasks = np.cast[self.masks.dtype](np.zeros(psz))
+        zmasks[:csz] = self.masks
+        self.masks = zmasks
+        
+        zdata = np.cast[self.data.dtype](np.zeros(psz))
+        zdata[:csz] = self.data
+        self.data = zdata
+        
+        self.size = csz
+        print('loaded {} samples in orientation {}, totalling with {} padding'.format(
+                len(self.size), self.rotation, sz))
         
         self.p = 0 # pointer to where we are in iteration
         self.rng = np.random.RandomState(1) if rng is None else rng
