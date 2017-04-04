@@ -366,7 +366,7 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
             mse = np.sum( np.power(a-b,2), axis=(1,2,3) ) / np.prod( a.shape[1:] ) # ignore batch size
             mses.append(mse)
         # discard all samples from padding
-        mse = np.concat(mses)[:test_data.size]
+        mse = np.concatenate(mses)[:test_data.size]
         psnrs = 20 * ( np.log10(255) - np.log10( np.sqrt(mse) ) )
         psnr_avg, psnr_std = np.mean(psnrs), np.std(psnrs)
         print("average psnr run {}: {}, std: {}".format(run, psnr_avg, psnr_std))
