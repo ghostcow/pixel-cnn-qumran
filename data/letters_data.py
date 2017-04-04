@@ -25,6 +25,37 @@ def load(data_dir, subset='train'):
     else:
         raise NotImplementedError('subset should be either train or test')
 
+def get_orientations(ms):
+    o = np.zeros(len(ms), dtype=np.int32) # orientations
+    for i, m in enumerate(ms):
+        m = m[:,:,0]
+        y,x = me.center_of_mass(m)
+        # center coordinates
+        y -= 15.5
+        x -= 15.5
+        # fill o with optimal orientation for each mask, to maximize exposure
+        # of known information (1s in the mask) to PixelCNN
+        if y>=0 and x>=0:
+            if y>x:
+                o[i] = 2 # 2 rotations
+            elif y<=x:
+                o[i] = 7 # flip + 3 rotations
+        elif y>=0 and x<0:
+            if y>=-x:
+                o[i] = 6 # flip + 2 rotations
+            elif y<-x:
+                o[i] = 3 # 3 rotations
+        elif y<0 and x<0:
+            if y>=x:
+                o[i] = 5 # flip + 1 rotations
+            elif y<x:
+                o[i] = 0 # no flips or rotations, this is optimal
+        elif y<0 and x>=0:
+            if y>=-x:
+                o[i] = 4 # just flip no rotation needed
+            if y<-x:
+                o[i] = 1 # one rotation
+    return o
 
 class DataLoader(object):
     """ an object that generates batches of data for training """
@@ -54,13 +85,10 @@ class DataLoader(object):
         self.data, self.labels, self.masks = load(data_dir, subset=subset)
         
         if self.test and self.rotation is not None:
-            inds = self.labels == self.rotation
+            y = get_orientations(self.masks)
+            inds = (y == self.rotation)
             self.data = self.data[inds]
-            self.labels = self.labels[inds]
             self.masks = self.masks[inds]
-        elif self.test and self.rotation is None:
-            print('Error!!! Cannot test without specifying rotation!!')
-            sys.exit(-1)
         
         self.p = 0 # pointer to where we are in iteration
         self.rng = np.random.RandomState(1) if rng is None else rng
@@ -69,8 +97,7 @@ class DataLoader(object):
         return self.data.shape[1:]
 
     def get_num_labels(self):
-        return 8
-#        return np.amax(self.labels) + 1
+        return 8 # 4 rotations * 2 possible flips
 
     def set_batch_size(self, n):
         self.batch_size = n
@@ -91,8 +118,6 @@ class DataLoader(object):
             inds = self.rng.permutation(self.data.shape[0])
             self.data = self.data[inds]
             self.masks = self.masks[inds]
-            if self.labels is not None:
-                self.labels = self.labels[inds]
 
         # on last iteration reset the counter and raise StopIteration
         if self.p + n > self.data.shape[0]:
@@ -101,8 +126,6 @@ class DataLoader(object):
 
         # on intermediate iterations fetch the next batch
         x = self.data[self.p : self.p + n]
-        if self.labels is not None:
-            y = self.labels[self.p : self.p + n]
         m = self.masks[self.p : self.p + n]
         self.p += self.batch_size
         

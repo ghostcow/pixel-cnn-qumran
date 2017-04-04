@@ -78,8 +78,6 @@ if args.class_conditional:
     num_labels = train_data.get_num_labels()
     y_init = tf.placeholder(tf.int32, shape=(args.init_batch_size,))
     h_init = tf.one_hot(y_init, num_labels)
-#    _,y_sample,_ = test_data.next()
-#    test_data.reset()
     y_sample = np.arange(args.batch_size * args.nr_gpu) % num_labels
     y_sample = np.split(y_sample, args.nr_gpu)
     h_sample = [tf.one_hot(tf.Variable(y_sample[i], trainable=False), num_labels) for i in range(args.nr_gpu)]
@@ -183,7 +181,7 @@ def adaptive_rotation(x, y):
 # turn numpy inputs into feed_dict for use with tensorflow
 def make_feed_dict(data, init=False, test=False):
     '''
-    contract: if no labels then rotation must be specified
+    contract: class_conditional => randomize_labels must be at the same time
     '''
     if type(data) is tuple and len(data)==2:
         x,m = data
@@ -207,7 +205,7 @@ def make_feed_dict(data, init=False, test=False):
             y = np.arange(x.shape[0]) % 8
             x = adaptive_rotation(x, y)
         feed_dict = {x_init: x}
-        if y is not None and args.class_conditional:
+        if args.class_conditional:
             feed_dict.update({y_init: y})
     else:
         x = np.split(x, args.nr_gpu)
@@ -312,7 +310,7 @@ with tf.Session(config=config) as sess:
             if wait >= patience:
                 stopped_epoch = epoch
                 print('Epoch %05d: early stopping' % (stopped_epoch))
-                print("Best iteration: %d, train bits_per_dim = %.4f, test bits_per_dim = %.4f" % (stopped_epoch, best_train, best))
+                print("Best iteration: %d, train bits_per_dim = %.4f, test bits_per_dim = %.4f" % (stopped_epoch-patience, best_train, best))
                 stop_training = True
             wait += 1
             

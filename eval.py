@@ -69,7 +69,7 @@ tf.set_random_seed(args.seed)
 if args.data_set == 'imagenet' and args.class_conditional:
     raise("We currently don't have labels for the small imagenet data set")
 DataLoader = {'cifar':cifar10_data.DataLoader, 'imagenet':imagenet_data.DataLoader, 'letters':letters_data.DataLoader}[args.data_set]
-test_data = DataLoader(args.data_dir, 'test', args.batch_size * args.nr_gpu, shuffle=False, return_labels=args.class_conditional, rotation=args.rotation if args.rotation else 0, test=args.test)
+test_data = DataLoader(args.data_dir, 'test', args.batch_size * args.nr_gpu, shuffle=False, return_labels=args.class_conditional, rotation=args.rotation, test=args.test)
 obs_shape = test_data.get_observation_size() # e.g. a tuple (32,32,3)
 assert len(obs_shape) == 3, 'assumed right now'
 
@@ -238,50 +238,55 @@ def sample_from_model(sess, x_gen, y, masks):
 
 def get_likelihood(sess, x, y):
     x = np.split(x, args.nr_gpu)
-    feed_dict = {xs[i]: x_gen[i] for i in range(args.nr_gpu)}
-            if args.class_conditional:
-                feed_dict.update({ys[i]: y[i] for i in range(args.nr_gpu)})
-            new_x_gen_np = sess.run(new_x_gen, feed_dict)
+    y = np.split(y, args.nr_gpu)
+    feed_dict = {xs[i]: x[i] for i in range(args.nr_gpu)}
+    if args.class_conditional:
+        feed_dict.update({ys[i]: y[i] for i in range(args.nr_gpu)})
+    return sess.run(log_prob, feed_dict)
 
 # init & save
 initializer = tf.initialize_all_variables()
 saver = tf.train.Saver()
 
 # turn numpy inputs into feed_dict for use with tensorflow
-def make_feed_dict(data, init=False):
-    if type(data) is tuple and len(data)==3:
-        x,m = data
-        y = None
-    elif type(data) is tuple and len(data)==4:
-        x,y,m = data
-    else:
-        x = data
-        y = None
+def make_feed_dict(data, init=False, test=False):
+    '''
+    contract: class_conditional => randomize_labels must be at the same time
+    '''
+    x,m = data
+    y = None
+    x = adaptive_rotation(x, args.rotation)
+            
+    # randomize labels by selecting one random label per batch, unrotate and 
+    # unflip if necessary
+    if args.randomize_labels and test is not True:        
+        x = adaptive_rotation(x, -args.rotation)
+        y = np.zeros(x.shape[0], dtype=np.int32)
+        y.fill(np.random.randint(8))
+        x = adaptive_rotation(x, y)
+
     x = np.cast[np.float32]((x - 127.5) / 127.5) # input to pixelCNN is scaled from uint8 [0,255] to float in range [-1,1]
-    # TODO: fix this, sort this out this is a terrible dichotomy, must consider flips
-    # TODO: also support encoded labels
-    if args.rotation is None:
-        k = np.random.randint(4)
-        y.fill(k)
-    else:
-        k = args.rotation
-    x = np.rot90(x, k=k, axes=(1,2))
-    m = np.rot90(m, k=k, axes=(1,2))
     
     if init:
+        if args.randomize_labels and test is not True:
+            x = adaptive_rotation(x, -y)
+            y = np.arange(x.shape[0]) % 8
+            x = adaptive_rotation(x, y)
         feed_dict = {x_init: x}
-        if y is not None:
+        if args.class_conditional:
             feed_dict.update({y_init: y})
     else:
         x = np.split(x, args.nr_gpu)
         feed_dict = {xs[i]: x[i] for i in range(args.nr_gpu)}
-        if y is not None:
+        if args.class_conditional:
+            y = np.zeros(args.batch_size * args.nr_gpu, dtype=np.int32)
+            y.fill(args.rotation)
             y = np.split(y, args.nr_gpu)
             feed_dict.update({ys[i]: y[i] for i in range(args.nr_gpu)})
     return feed_dict
 
 
-# //////////// perform training //////////////
+# //////////// perform evaluation //////////////
 if not os.path.exists(args.save_dir):
     os.makedirs(args.save_dir)
 print('starting evaluation')
@@ -315,18 +320,22 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
     sys.stdout.flush()
     average_psnrs=[]
     std_psnrs=[]
-    for run in range(20):
+#    for run in range(20):
+    for run in range(1):
         gen_data = []
         # generate samples from the model
         for data in test_data:
             # rotate/flip data for model, and create appropriate labels
-            if args.adaptive_rotation:
+            if args.adaptive_rotation and args.rotation is None:
                 x, y, m = adaptive_rotation(data)
-            else:
+            elif args.adaptive_rotation is False:
                 x, m = data
-                y = np.zeros(x_gen.shape[0], dtype=np.int32)
+                y = np.zeros(x.shape[0], dtype=np.int32)
                 y.fill(args.rotation)
                 x = flip_rotate(x, args.rotation)
+            else:
+                print('Must set rotation as None when doing adaptive rotation. Exiting...')
+                sys.exit(-1)
             sample_x, y = sample_from_model(sess, x, y, m)
             sample_prob = get_likelihood(sess, sample_x, y)
             # twist pictures back
@@ -342,6 +351,8 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
                 pkl.dump(gen_data,f)
             break
         else:
+            if args.color:
+                args.suffix += '_colored'
             # save results
             with open(os.path.join(args.save_dir,'results_{}{}.pkl'.format(run, args.suffix)),'wb') as f:
                 pkl.dump(gen_data,f)
@@ -362,6 +373,7 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
         average_psnrs.append(psnr_avg)
         std_psnrs.append(psnr_std)
         sys.stdout.flush()
+    # show stats summary
     if len(average_psnrs)>0:
         print("mean average psnr: {}, std over averages: {}, mean psnr std: {}, std over stds: {}".format(
                 np.mean(average_psnrs), np.std(average_psnrs),
