@@ -31,6 +31,8 @@ def get_orientations(ms):
     for i, m in enumerate(ms):
         m = m[:,:,0]
         y,x = me.center_of_mass(m)
+        if np.isnan(x) or np.isnan(y): 
+            continue
         # center coordinates
         y -= 15.5
         x -= 15.5
@@ -85,12 +87,26 @@ class DataLoader(object):
         # load CIFAR-10 training data to RAM
         self.data, self.labels, self.masks = load(data_dir, subset=subset)
         
+        self.size = len(self.data)
+        
         if self.test and self.rotation is not None:
             y = get_orientations(self.masks)
             inds = (y == self.rotation)
             self.data = self.data[inds]
             self.masks = self.masks[inds]
-            self.batch_size = len(self.data)
+            csz = len(self.data)
+            sz = ( csz // self.batch_size ) * self.batch_size
+                 
+            # what the actual fuck
+            zmasks = np.cast[self.masks.dtype](np.zeros([sz] + self.masks.shape[1:]))
+            zmasks[:csz] = self.masks
+            self.masks = zmasks
+            
+            zdata = np.cast[self.data.dtype](np.zeros([sz] + self.data.shape[1:]))
+            zdata[:csz] = self.data
+            self.data = zdata
+            
+            self.size = csz
             print('loaded {} samples in orientation {}.'.format(
                     len(self.data), self.rotation))
         
@@ -109,6 +125,9 @@ class DataLoader(object):
 
     def get_batch_size(self):
         return self.batch_size
+    
+    def size(self):
+        return self.size
     
     def reset(self):
         self.p = 0

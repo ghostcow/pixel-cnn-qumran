@@ -69,6 +69,7 @@ def discretized_mix_logistic_loss(x,l,sum_all=True):
     if sum_all:
         return -tf.reduce_sum(log_sum_exp(log_probs))
     else:
+        #return -tf.reduce_sum(log_sum_exp(log_probs),[1,2])
         return -tf.reduce_sum(log_sum_exp(log_probs),[1,2])
 
 def sample_from_discretized_mix_logistic(l,nr_mix):

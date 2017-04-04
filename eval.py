@@ -49,7 +49,6 @@ parser.add_argument('-p', '--dropout_p', type=float, default=0.5, help='Dropout 
 parser.add_argument('-x', '--max_epochs', type=int, default=601, help='How many epochs to run in total?')
 parser.add_argument('-g', '--nr_gpu', type=int, default=4, help='How many GPUs to distribute the training across?')
 # evaluation
-parser.add_argument('-t', '--color', dest='color', action='store_true', help='Color the completed area in yellow and purple in the generated samples.')
 parser.add_argument('--polyak_decay', type=float, default=0.9995, help='Exponential decay rate of the sum of previous model iterates during Polyak averaging')
 parser.add_argument('-j', '--just_gen', dest='just_gen', action='store_true', help='Just generate samples without training.')
 parser.add_argument('-u', '--test', dest='test', action='store_true', help='Loading test samples (no labels).')
@@ -137,6 +136,8 @@ def get_orientations(ms):
     for i, m in enumerate(ms):
         m = m[:,:,0]
         y,x = me.center_of_mass(m)
+        if np.isnan(x) or np.isnan(y): 
+            continue
         # center coordinates
         y -= 15.5
         x -= 15.5
@@ -218,26 +219,26 @@ def sample_from_model(sess, x_gen, y, masks):
 
     x_gen = np.concatenate(x_gen, axis=0)
     masks = np.concatenate(masks, axis=0)
-    if args.color:
-        """
-        #purple: 102 0 153
-        #yellow: 255 204 0
-        #grey: 153 153 153
-        """
-        x_gen = x_gen.repeat(3, 3)
-        masks = masks.repeat(3, 3)
-        # color black fill-in as red, white fill-in as green
-        black_inds = ( (x_gen)*(1-masks) == -1 )
-        white_inds = np.cast[np.bool]( (~black_inds)*(1-masks) )
-        x_gen[black_inds[...,0],0] = ((102 - 127.5) / 127.5)
-        x_gen[black_inds[...,1],1] = ((0 - 127.5) / 127.5)
-        x_gen[black_inds[...,2],2] = ((153 - 127.5) / 127.5)
-        x_gen[white_inds[...,0],0] = ((255 - 127.5) / 127.5)
-        x_gen[white_inds[...,1],1] = ((204 - 127.5) / 127.5)
-        x_gen[white_inds[...,2],2] = ((0 - 127.5) / 127.5)
+
+    """
+    #purple: 102 0 153
+    #yellow: 255 204 0
+    #grey: 153 153 153
+    """
+    x_col = x_gen.repeat(3, 3).copy()
+    masks = masks.repeat(3, 3)
+    # color black fill-in as red, white fill-in as green
+    black_inds = ( (x_col)*(1-masks) == -1 )
+    white_inds = np.cast[np.bool]( (~black_inds)*(1-masks) )
+    x_col[black_inds[...,0],0] = ((102 - 127.5) / 127.5)
+    x_col[black_inds[...,1],1] = ((0 - 127.5) / 127.5)
+    x_col[black_inds[...,2],2] = ((153 - 127.5) / 127.5)
+    x_col[white_inds[...,0],0] = ((255 - 127.5) / 127.5)
+    x_col[white_inds[...,1],1] = ((204 - 127.5) / 127.5)
+    x_col[white_inds[...,2],2] = ((0 - 127.5) / 127.5)
 
     # NOTE: images are still twisted at this point    
-    return x_gen, y
+    return x_gen, y, x_col
 
 
 def get_likelihood(sess, x, y):
@@ -340,18 +341,16 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
             else:
                 print('Must set rotation as None when doing adaptive rotation. Exiting...')
                 sys.exit(-1)
-            sample_x, y = sample_from_model(sess, x, y, m)
+            sample_x, y, colored_x = sample_from_model(sess, x, y, m)
             sample_prob = get_likelihood(sess, sample_x, y)
             # twist pictures back
             for j in range(len(y)):
                 sample_x[j] = flip_rotate(sample_x[j], -y[j])
                 x[j] = flip_rotate(x[j], -y[j])
-            gen_data.append((sample_x, x, m, sample_prob))
+            gen_data.append((sample_x, x, m, sample_prob, colored_x))
 
         # if just generate, print out samples and quit
-        if args.just_gen or args.color:
-            if args.color:
-                args.suffix += '_colored'
+        if args.just_gen:
             # save results
             with open(os.path.join(args.save_dir,'generated_images_{}{}.pkl'.format(int(datetime.now().timestamp()), args.suffix)),'wb') as f:
                 pkl.dump(gen_data,f)
@@ -362,16 +361,16 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
                 pkl.dump(gen_data,f)
         
         # calculate mean average psnr
-        psnrs=[]
+        mses = []
         for sample_x, x, _, _ in gen_data:
-            # calculate per-picture psnr
-            for i in range(x.shape[0]):
-                #change to 0..255
-                a = np.round(127.5 * sample_x[i] + 127.5)
-                b = x[i]
-                mse = np.sum( np.power(a-b,2) ) / np.prod( a.shape )
-                psnr = 20 * ( np.log10(255) - np.log10(np.sqrt(mse)) )
-                psnrs.append(psnr)
+            # calculate per-picture psnr vectorized
+            #change to 0..255
+            a = np.round(127.5 * sample_x + 127.5)
+            b = x
+            mse = np.sum( np.power(a-b,2), axis=(1,2,3) ) / np.prod( a.shape[1:] ) # ignore batch size
+            mses.append(mse)
+        mse = np.concat(mses)[:test_data.size()]
+        psnrs = 20 * ( np.log10(255) - np.log10( np.sqrt(mse) ) )
         psnr_avg, psnr_std = np.mean(psnrs), np.std(psnrs)
         print("average psnr run {}: {}, std: {}".format(run, psnr_avg, psnr_std))
         average_psnrs.append(psnr_avg)
