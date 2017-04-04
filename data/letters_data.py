@@ -110,7 +110,7 @@ class DataLoader(object):
         
         self.size = csz
         print('loaded {} samples in orientation {}, totalling with {} padding'.format(
-                len(self.size), self.rotation, sz))
+                self.size, self.rotation, sz))
         
         self.p = 0 # pointer to where we are in iteration
         self.rng = np.random.RandomState(1) if rng is None else rng
