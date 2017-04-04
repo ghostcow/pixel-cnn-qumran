@@ -70,10 +70,6 @@ if args.data_set == 'imagenet' and args.class_conditional:
 DataLoader = {'cifar':cifar10_data.DataLoader, 'imagenet':imagenet_data.DataLoader, 'letters':letters_data.DataLoader}[args.data_set]
 test_data = DataLoader(args.data_dir, 'test', args.batch_size * args.nr_gpu, shuffle=False, return_labels=args.class_conditional, rotation=args.rotation, test=args.test)
 
-# update batch_size to facilitate full use of samples
-if args.test and args.rotation is not None:
-    args.batch_size = test_data.get_batch_size()
-
 obs_shape = test_data.get_observation_size() # e.g. a tuple (32,32,3)
 assert len(obs_shape) == 3, 'assumed right now'
 
@@ -353,23 +349,24 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
         if args.just_gen:
             # save results
             with open(os.path.join(args.save_dir,'generated_images_{}{}.pkl'.format(int(datetime.now().timestamp()), args.suffix)),'wb') as f:
-                pkl.dump(gen_data,f)
+                pkl.dump({'gen_data':gen_data, 'size':test_data.size},f)
             break
         else:
             # save results
             with open(os.path.join(args.save_dir,'results_{}{}.pkl'.format(run, args.suffix)),'wb') as f:
-                pkl.dump(gen_data,f)
+                pkl.dump({'gen_data':gen_data, 'size':test_data.size},f)
         
         # calculate mean average psnr
         mses = []
-        for sample_x, x, _, _ in gen_data:
+        for sample_x, x, _, _, _ in gen_data:
             # calculate per-picture psnr vectorized
             #change to 0..255
             a = np.round(127.5 * sample_x + 127.5)
             b = x
             mse = np.sum( np.power(a-b,2), axis=(1,2,3) ) / np.prod( a.shape[1:] ) # ignore batch size
             mses.append(mse)
-        mse = np.concat(mses)[:test_data.size()]
+        # discard all samples from padding
+        mse = np.concat(mses)[:test_data.size]
         psnrs = 20 * ( np.log10(255) - np.log10( np.sqrt(mse) ) )
         psnr_avg, psnr_std = np.mean(psnrs), np.std(psnrs)
         print("average psnr run {}: {}, std: {}".format(run, psnr_avg, psnr_std))
@@ -382,5 +379,5 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
                 np.mean(average_psnrs), np.std(average_psnrs),
                 np.mean(std_psnrs), np.std(std_psnrs)))
         
-    print('done.')
+    print('done in {} minutes.'.format((time.time() - begin)/60))
     sys.stdout.flush()

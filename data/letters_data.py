@@ -95,14 +95,14 @@ class DataLoader(object):
             self.data = self.data[inds]
             self.masks = self.masks[inds]
             csz = len(self.data)
-            sz = ( csz // self.batch_size ) * self.batch_size
-                 
+            sz = csz + (self.batch_size - csz % self.batch_size )
+            psz = [sz] + list(self.masks.shape[1:])
             # what the actual fuck
-            zmasks = np.cast[self.masks.dtype](np.zeros([sz] + self.masks.shape[1:]))
+            zmasks = np.cast[self.masks.dtype](np.zeros(psz))
             zmasks[:csz] = self.masks
             self.masks = zmasks
             
-            zdata = np.cast[self.data.dtype](np.zeros([sz] + self.data.shape[1:]))
+            zdata = np.cast[self.data.dtype](np.zeros(psz))
             zdata[:csz] = self.data
             self.data = zdata
             
@@ -125,9 +125,6 @@ class DataLoader(object):
 
     def get_batch_size(self):
         return self.batch_size
-    
-    def size(self):
-        return self.size
     
     def reset(self):
         self.p = 0
