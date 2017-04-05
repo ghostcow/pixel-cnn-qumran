@@ -91,7 +91,12 @@ class DataLoader(object):
         
         if self.single_ar and self.rotation is not None:
             y = get_orientations(self.masks)
-            inds = (y == self.rotation)
+            if self.rotation == 1:
+                inds = (y == 4)
+            elif self.rotation == 4:
+                inds = (y == 1)
+            else:
+                inds = (y == self.rotation)
             self.data = self.data[inds]
             self.masks = self.masks[inds]
             self.size = len(self.data)
