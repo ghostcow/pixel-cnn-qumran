@@ -325,7 +325,7 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
             for j in range(len(y)):
                 sample_x[j] = flip_rotate(sample_x[j], -y[j])
                 x[j] = flip_rotate(x[j], -y[j])
-                colored_x = flip_rotate(colored_x[j], -y[j])
+                colored_x[j] = flip_rotate(colored_x[j], -y[j])
             gen_data.append((sample_x, x, m, sample_prob, colored_x))
 
         # if just generate, print out samples and quit
