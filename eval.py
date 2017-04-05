@@ -308,11 +308,9 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
             else:
                 print('Must set rotation as None when doing single model adaptive rotation. Exiting...')
                 sys.exit(-1)
-            print('before: ', y)
             sample_x, y, colored_x = sample_from_model(sess, x, y, m)
             sample_prob = get_likelihood(sess, sample_x, y)
             # twist pictures back
-            print('after: ', y)
             for j in range(len(y)):
                 sample_x[j] = flip_rotate(sample_x[j], -y[j])
                 x[j] = flip_rotate(x[j], -y[j])
