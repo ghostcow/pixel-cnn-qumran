@@ -205,11 +205,6 @@ def sample_from_model(sess, x_gen, y, masks):
     masks = np.split(masks, args.nr_gpu)
     
     if args.class_conditional:
-        # stupid fix
-        in1 = (y==1)
-        in4 = (y==4)
-        y[in1] = 4
-        y[in4] = 1
         y = np.split(y, args.nr_gpu)
     
     for yi in range(obs_shape[0]):
@@ -226,9 +221,6 @@ def sample_from_model(sess, x_gen, y, masks):
     masks = np.concatenate(masks, axis=0)
     if args.class_conditional:
         y = np.concatenate(y)
-        # stupid hack bcz of switched labels
-        y[in4] = 4
-        y[in1] = 1
 
     """
     #purple: 102 0 153
@@ -236,7 +228,7 @@ def sample_from_model(sess, x_gen, y, masks):
     #grey: 153 153 153
     """
     x_col = x_gen.repeat(3, 3).copy()
-    masks = masks.repeat(3, 3)
+    masks = masks.repeat(3, 3).copy()
     # color black fill-in as red, white fill-in as green
     black_inds = ( (x_col)*(1-masks) == -1 )
     white_inds = np.cast[np.bool]( (~black_inds)*(1-masks) )
