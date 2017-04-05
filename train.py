@@ -171,7 +171,9 @@ def flip_rotate(x, y):
     return x
 
 def adaptive_rotation(x, y):
-    if type(y)==int:
+    if y is None:
+        pass
+    elif type(y)==int:
         x = flip_rotate(x, y)
     else:
         for j in range(len(y)):
@@ -187,10 +189,9 @@ def make_feed_dict(data, init=False, test=False):
         x,m = data
         y = None
         x = adaptive_rotation(x, args.rotation)
-            
-    
+
     # randomize labels by selecting one random label per batch, unrotate and 
-    # unflip if necessary
+    # unflip if necessary, turn off when testing
     if args.randomize_labels and test is not True:        
         x = adaptive_rotation(x, -args.rotation)
         y = np.zeros(x.shape[0], dtype=np.int32)
@@ -199,8 +200,8 @@ def make_feed_dict(data, init=False, test=False):
 
     x = np.cast[np.float32]((x - 127.5) / 127.5) # input to pixelCNN is scaled from uint8 [0,255] to float in range [-1,1]
     
-    if init:
-        if args.randomize_labels and test is not True: # in case y is some const
+    if init: # we don't call init=True with test=True...
+        if args.randomize_labels: # in case y is some const
             x = adaptive_rotation(x, -y)
             y = np.arange(x.shape[0]) % 8
             x = adaptive_rotation(x, y)

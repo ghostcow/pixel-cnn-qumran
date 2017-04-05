@@ -63,7 +63,7 @@ def get_orientations(ms):
 class DataLoader(object):
     """ an object that generates batches of data for training """
 
-    def __init__(self, data_dir, subset, batch_size, rng=None, shuffle=False, return_labels=False, rotation=None, test=False):
+    def __init__(self, data_dir, subset, batch_size, rng=None, shuffle=False, return_labels=False, rotation=None, single_ar=False, pad=False):
         """ 
         - data_dir is location where to store files
         - subset is train|test 
@@ -77,7 +77,7 @@ class DataLoader(object):
         self.shuffle = shuffle
         self.return_labels = return_labels
         self.rotation = rotation
-        self.test = test
+        self.single_ar = single_ar
 
         # create temporary storage for the data, if not yet created
         if not os.path.exists(data_dir):
@@ -89,28 +89,29 @@ class DataLoader(object):
         
         self.size = len(self.data)
         
-        if self.test and self.rotation is not None:
+        if self.single_ar and self.rotation is not None:
             y = get_orientations(self.masks)
             inds = (y == self.rotation)
             self.data = self.data[inds]
             self.masks = self.masks[inds]
+            self.size = len(self.data)
+        
+        if pad:
+            # padding!!
+            csz = self.size
+            sz = csz + (self.batch_size - csz % self.batch_size )
+            psz = [sz] + list(self.masks.shape[1:])
+    
+            zmasks = np.cast[self.masks.dtype](np.zeros(psz))
+            zmasks[:csz] = self.masks
+            self.masks = zmasks
             
-        # padding!!
-        csz = len(self.data)
-        sz = csz + (self.batch_size - csz % self.batch_size )
-        psz = [sz] + list(self.masks.shape[1:])
-
-        zmasks = np.cast[self.masks.dtype](np.zeros(psz))
-        zmasks[:csz] = self.masks
-        self.masks = zmasks
+            zdata = np.cast[self.data.dtype](np.zeros(psz))
+            zdata[:csz] = self.data
+            self.data = zdata
         
-        zdata = np.cast[self.data.dtype](np.zeros(psz))
-        zdata[:csz] = self.data
-        self.data = zdata
-        
-        self.size = csz
-        print('loaded {} samples in orientation {}, totalling with {} padding'.format(
-                self.size, self.rotation, sz))
+            print('loaded {} samples in orientation {}, totalling with {} padding'.format(
+                    self.size, self.rotation, sz))
         
         self.p = 0 # pointer to where we are in iteration
         self.rng = np.random.RandomState(1) if rng is None else rng

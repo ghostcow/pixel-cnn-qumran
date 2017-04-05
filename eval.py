@@ -51,9 +51,10 @@ parser.add_argument('-g', '--nr_gpu', type=int, default=4, help='How many GPUs t
 # evaluation
 parser.add_argument('--polyak_decay', type=float, default=0.9995, help='Exponential decay rate of the sum of previous model iterates during Polyak averaging')
 parser.add_argument('-j', '--just_gen', dest='just_gen', action='store_true', help='Just generate samples without training.')
-parser.add_argument('-u', '--test', dest='test', action='store_true', help='Loading test samples (no labels).')
+parser.add_argument('-u', '--single_ar', dest='single_ar', action='store_true', help='Test samples of one orientation only.')
 parser.add_argument('-w', '--suffix', type=str, default='', help='Suffix for saved results')
 parser.add_argument('-v', '--adaptive_rotation', dest='adaptive_rotation', action='store_true', help='Adaptive rotation (for 4-way single model)')
+parser.add_argument('-y', '--test_padding', dest='test_padding', action='store_true', help='Pad test set so num samples is divisible by batch size')
 # reproducibility
 parser.add_argument('-s', '--seed', type=int, default=1, help='Random seed to use')
 args = parser.parse_args()
@@ -68,7 +69,10 @@ tf.set_random_seed(args.seed)
 if args.data_set == 'imagenet' and args.class_conditional:
     raise("We currently don't have labels for the small imagenet data set")
 DataLoader = {'cifar':cifar10_data.DataLoader, 'imagenet':imagenet_data.DataLoader, 'letters':letters_data.DataLoader}[args.data_set]
-test_data = DataLoader(args.data_dir, 'test', args.batch_size * args.nr_gpu, shuffle=False, return_labels=args.class_conditional, rotation=args.rotation, test=args.test)
+test_data = DataLoader(args.data_dir, 'test', args.batch_size * args.nr_gpu, shuffle=False, return_labels=args.class_conditional, rotation=args.rotation, single_ar=args.single_ar, pad=args.test_padding)
+if test_data.size == 0:
+    print('Nothing to evaluate, test_data size is 0.')
+    sys.exit(0)
 
 obs_shape = test_data.get_observation_size() # e.g. a tuple (32,32,3)
 assert len(obs_shape) == 3, 'assumed right now'
@@ -249,43 +253,6 @@ def get_likelihood(sess, x, y):
 initializer = tf.initialize_all_variables()
 saver = tf.train.Saver()
 
-# turn numpy inputs into feed_dict for use with tensorflow
-def make_feed_dict(data, init=False, test=False):
-    '''
-    contract: class_conditional => randomize_labels must be at the same time
-    '''
-    x,m = data
-    y = None
-    x = adaptive_rotation(x, args.rotation)
-            
-    # randomize labels by selecting one random label per batch, unrotate and 
-    # unflip if necessary
-    if args.randomize_labels and test is not True:        
-        x = adaptive_rotation(x, -args.rotation)
-        y = np.zeros(x.shape[0], dtype=np.int32)
-        y.fill(np.random.randint(8))
-        x = adaptive_rotation(x, y)
-
-    x = np.cast[np.float32]((x - 127.5) / 127.5) # input to pixelCNN is scaled from uint8 [0,255] to float in range [-1,1]
-    
-    if init:
-        if args.randomize_labels and test is not True:
-            x = adaptive_rotation(x, -y)
-            y = np.arange(x.shape[0]) % 8
-            x = adaptive_rotation(x, y)
-        feed_dict = {x_init: x}
-        if args.class_conditional:
-            feed_dict.update({y_init: y})
-    else:
-        x = np.split(x, args.nr_gpu)
-        feed_dict = {xs[i]: x[i] for i in range(args.nr_gpu)}
-        if args.class_conditional:
-            y = np.zeros(args.batch_size * args.nr_gpu, dtype=np.int32)
-            y.fill(args.rotation)
-            y = np.split(y, args.nr_gpu)
-            feed_dict.update({ys[i]: y[i] for i in range(args.nr_gpu)})
-    return feed_dict
-
 
 # //////////// perform evaluation //////////////
 if not os.path.exists(args.save_dir):
@@ -321,12 +288,12 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
     sys.stdout.flush()
     average_psnrs=[]
     std_psnrs=[]
-#    for run in range(20):
-    for run in range(1):
+    for run in range(20):
         gen_data = []
         # generate samples from the model
         for data in tqdm(test_data):
             # rotate/flip data for model, and create appropriate labels
+            # rotation must be None to disable loading only specifically oriented samples
             if args.adaptive_rotation and args.rotation is None:
                 x, y, m = adaptive_rotation(data)
             elif args.adaptive_rotation is False:
