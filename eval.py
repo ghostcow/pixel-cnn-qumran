@@ -219,6 +219,8 @@ def sample_from_model(sess, x_gen, y, masks):
 
     x_gen = np.concatenate(x_gen, axis=0)
     masks = np.concatenate(masks, axis=0)
+    if args.class_conditional:
+        y = np.concatenate(y)
 
     """
     #purple: 102 0 153
