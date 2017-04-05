@@ -160,9 +160,9 @@ def get_orientations(ms):
                 o[i] = 0 # no flips or rotations, this is optimal
         elif y<0 and x>=0:
             if y>=-x:
-                o[i] = 4 # just flip no rotation needed
-            if y<-x:
                 o[i] = 1 # one rotation
+            if y<-x:
+                o[i] = 4 # just flip no rotation needed
     return o
 
 def flip_rotate(x, y):
@@ -205,6 +205,11 @@ def sample_from_model(sess, x_gen, y, masks):
     masks = np.split(masks, args.nr_gpu)
     
     if args.class_conditional:
+        # stupid fix
+        in1 = (y==1)
+        in4 = (y==4)
+        y[in1] = 4
+        y[in4] = 1
         y = np.split(y, args.nr_gpu)
     
     for yi in range(obs_shape[0]):
@@ -221,6 +226,9 @@ def sample_from_model(sess, x_gen, y, masks):
     masks = np.concatenate(masks, axis=0)
     if args.class_conditional:
         y = np.concatenate(y)
+        # stupid hack bcz of switched labels
+        y[in4] = 4
+        y[in1] = 1
 
     """
     #purple: 102 0 153
@@ -244,6 +252,11 @@ def sample_from_model(sess, x_gen, y, masks):
 
 
 def get_likelihood(sess, x, y):
+    # stupid fix for stupid bug
+    in1 = (y==1)
+    in4 = (y==4)
+    y[in1] = 4
+    y[in4] = 1
     x = np.split(x, args.nr_gpu)
     y = np.split(y, args.nr_gpu)
     feed_dict = {xs[i]: x[i] for i in range(args.nr_gpu)}
@@ -304,7 +317,7 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
                 y.fill(args.rotation)
                 x = flip_rotate(x, args.rotation)
             else:
-                print('Must set rotation as None when doing adaptive rotation. Exiting...')
+                print('Must set rotation as None when doing single model adaptive rotation. Exiting...')
                 sys.exit(-1)
             sample_x, y, colored_x = sample_from_model(sess, x, y, m)
             sample_prob = get_likelihood(sess, sample_x, y)
@@ -312,6 +325,7 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
             for j in range(len(y)):
                 sample_x[j] = flip_rotate(sample_x[j], -y[j])
                 x[j] = flip_rotate(x[j], -y[j])
+                colored_x = flip_rotate(colored_x[j], -y[j])
             gen_data.append((sample_x, x, m, sample_prob, colored_x))
 
         # if just generate, print out samples and quit

@@ -55,9 +55,9 @@ def get_orientations(ms):
                 o[i] = 0 # no flips or rotations, this is optimal
         elif y<0 and x>=0:
             if y>=-x:
-                o[i] = 4 # just flip no rotation needed
-            if y<-x:
                 o[i] = 1 # one rotation
+            if y<-x:
+                o[i] = 4 # just flip no rotation needed
     return o
 
 class DataLoader(object):
