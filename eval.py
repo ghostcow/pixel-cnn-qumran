@@ -191,6 +191,7 @@ def adaptive_rotation(data):
     y = get_orientations(m)
     for j in range(len(y)):
         x[j] = flip_rotate(x[j], y[j])
+        m[j] = flip_rotate(m[j], y[j])
     return x, y, m
 
 new_x_gen = []
@@ -295,7 +296,7 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
     sys.stdout.flush()
     average_psnrs=[]
     std_psnrs=[]
-    for run in range(20):
+    for run in range(10):
         gen_data = []
         # generate samples from the model
         for data in tqdm(test_data):
@@ -308,6 +309,7 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
                 y = np.zeros(x.shape[0], dtype=np.int32)
                 y.fill(args.rotation)
                 x = flip_rotate(x, args.rotation)
+                m = flip_rotate(m, args.rotation)
             else:
                 print('Must set rotation as None when doing single model adaptive rotation. Exiting...')
                 sys.exit(-1)
@@ -317,6 +319,7 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
             for j in range(len(y)):
                 sample_x[j] = flip_rotate(sample_x[j], -y[j])
                 x[j] = flip_rotate(x[j], -y[j])
+                m[j] = flip_rotate(m[j], -y[j])
                 colored_x[j] = flip_rotate(colored_x[j], -y[j])
             gen_data.append((sample_x, x, m, sample_prob, colored_x))
 

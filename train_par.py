@@ -28,7 +28,7 @@ parser = argparse.ArgumentParser()
 # data I/O
 parser.add_argument('-i', '--data_dir', type=str, default='/tmp/pxpp/data', help='Location for the dataset')
 parser.add_argument('-o', '--save_dir', type=str, default='/tmp/pxpp/save', help='Location for parameter checkpoints and samples')
-parser.add_argument('-d', '--data_set', type=str, default='cifar', help='Can be either cifar|imagenet|letters')
+parser.add_argument('-d', '--data_set', type=str, default='letters', help='Can be either cifar|imagenet|letters')
 parser.add_argument('-t', '--gen_interval', type=int, default=20, help='Every how many epochs to write checkpoint/samples?')
 parser.add_argument('-r', '--load_params', dest='load_params', action='store_true', help='Restore training from previous model checkpoint?')
 # model
@@ -38,6 +38,7 @@ parser.add_argument('-m', '--nr_logistic_mix', type=int, default=10, help='Numbe
 parser.add_argument('-z', '--resnet_nonlinearity', type=str, default='concat_elu', help='Which nonlinearity to use in the ResNet layers. One of "concat_elu", "elu", "relu" ')
 parser.add_argument('-c', '--class_conditional', dest='class_conditional', action='store_true', help='Condition generative model on labels?')
 parser.add_argument('-f', '--rotation', type=int, default=None, help='Force uniform rotation of angle n*90 degrees counter-clockwise.')
+parser.add_argument('-u', '--randomize_labels', dest='randomize_labels', action='store_true', help='Randomize labels')
 # optimization
 parser.add_argument('-l', '--learning_rate', type=float, default=0.001, help='Base learning rate')
 parser.add_argument('-e', '--lr_decay', type=float, default=0.999995, help='Learning rate decay, applied every step of the optimization')
@@ -70,15 +71,13 @@ assert len(obs_shape) == 3, 'assumed right now'
 
 # data place holders
 x_init = tf.placeholder(tf.float32, shape=(args.init_batch_size,) + obs_shape)
-xs = [tf.placeholder(tf.float32, shape=(args.batch_size, ) + obs_shape) for i in range(2)]
+xs = [tf.placeholder(tf.float32, shape=(args.batch_size, ) + obs_shape) for i in range(args.nr_gpu)]
 
 # if the model is class-conditional we'll set up label placeholders + one-hot encodings 'h' to condition on
 if args.class_conditional:
     num_labels = train_data.get_num_labels()
     y_init = tf.placeholder(tf.int32, shape=(args.init_batch_size,))
     h_init = tf.one_hot(y_init, num_labels)
-#    _,y_sample,_ = test_data.next()
-#    test_data.reset()
     y_sample = np.arange(args.batch_size * args.nr_gpu) % num_labels
     y_sample = np.split(y_sample, args.nr_gpu)
     h_sample = [tf.one_hot(tf.Variable(y_sample[i], trainable=False), num_labels) for i in range(args.nr_gpu)]
@@ -93,144 +92,136 @@ else:
 model_opt = { 'nr_resnet': args.nr_resnet, 'nr_filters': args.nr_filters, 'nr_logistic_mix': args.nr_logistic_mix, 'resnet_nonlinearity': args.resnet_nonlinearity }
 model = tf.make_template('model', model_spec)
 
-grads = []
-loss_gen = []
-loss_gen_test = []
-models=[]
-# allocate variables
-for i in range(1):
-    with tf.device('/gpu:%d' % i):
-        for j in range(2): # 2 models per gpu
-            with tf.variable_scope('model%d' % 2*i+j):
-                # run once for data dependent initialization of parameters
-                gen_par = model(x_init, h_init, init=True, dropout_p=args.dropout_p, **model_opt)
-                models.append(gen_par)
+# run once for data dependent initialization of parameters
+gen_par = model(x_init, h_init, init=True, dropout_p=args.dropout_p, **model_opt)
 
 # keep track of moving average
 all_params = tf.trainable_variables()
 ema = tf.train.ExponentialMovingAverage(decay=args.polyak_decay)
 maintain_averages_op = tf.group(ema.apply(all_params))
-tf_lr = tf.placeholder(tf.float32, shape=[])
-all_params = []
-# train ops n shit
-for i in range(1):
-    with tf.device('/gpu:%d' % i):
-        for j in range(2):
-            k = 2*i+j
-            with tf.variable_scope('model%d' % k, reuse=True):    
-                params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='model%d' % k)
-                all_params += params
-                # train
-                gen_par = model(xs[k], hs[k], ema=None, dropout_p=args.dropout_p, **model_opt)
-                loss_gen.append(nn.discretized_mix_logistic_loss(xs[k], gen_par))
-                # gradients
-                grads += tf.gradients(loss_gen[k], params)
-                # test
-                gen_par = model(xs[k], hs[k], ema=ema, dropout_p=0., **model_opt)
-                loss_gen_test.append(nn.discretized_mix_logistic_loss(xs[k], gen_par))
 
-# training op
-optimizer = tf.group(nn.adam_updates(all_params, grads, lr=tf_lr, mom1=0.95, mom2=0.9995), maintain_averages_op)
+# get loss gradients over multiple GPUs
+grads = []
+loss_gen = []
+loss_gen_test = []
+for i in range(args.nr_gpu):
+    with tf.device('/gpu:%d' % i):
+        # train
+        gen_par = model(xs[i], hs[i], ema=None, dropout_p=args.dropout_p, **model_opt)
+        loss_gen.append(nn.discretized_mix_logistic_loss(xs[i], gen_par))
+        # gradients
+        grads.append(tf.gradients(loss_gen[i], all_params))
+        # test
+        gen_par = model(xs[i], hs[i], ema=ema, dropout_p=0., **model_opt)
+        loss_gen_test.append(nn.discretized_mix_logistic_loss(xs[i], gen_par))
+
+# add losses and gradients together and get training updates
+tf_lr = tf.placeholder(tf.float32, shape=[])
+with tf.device('/gpu:0'):
+    for i in range(1,args.nr_gpu):
+        loss_gen[0] += loss_gen[i]
+        loss_gen_test[0] += loss_gen_test[i]
+        for j in range(len(grads[0])):
+            grads[0][j] += grads[i][j]
+    # training op
+    optimizer = tf.group(nn.adam_updates(all_params, grads[0], lr=tf_lr, mom1=0.95, mom2=0.9995), maintain_averages_op)
 
 # convert loss to bits/dim
-bits_per_dim = [loss_gen[i]/(np.log(2.)*np.prod(obs_shape)*args.batch_size) for i in range(2)]
-bits_per_dim_test = [loss_gen_test[i]/(np.log(2.)*np.prod(obs_shape)*args.batch_size) for i in range(2)]
+bits_per_dim = loss_gen[0]/(args.nr_gpu*np.log(2.)*np.prod(obs_shape)*args.batch_size)
+bits_per_dim_test = loss_gen_test[0]/(args.nr_gpu*np.log(2.)*np.prod(obs_shape)*args.batch_size)
 
 # sample from the model
 new_x_gen = []
-for i in range(1):
+for i in range(args.nr_gpu):
     with tf.device('/gpu:%d' % i):
-        for j in range(2):
-            k = 2*i+j
-            with tf.variable_scope('model%d' % k, reuse=True):  
-                gen_par = model(xs[i], h_sample[i], ema=ema, dropout_p=0, **model_opt)
-                new_x_gen.append(nn.sample_from_discretized_mix_logistic(gen_par, args.nr_logistic_mix))
-def sample_from_model(sess, data, s=0):
-    x_gen = [np.zeros((args.batch_size,) + obs_shape, dtype=np.float32) for i in range(args.nr_gpu*2)]
-#    x_gen, labels, masks, k = data
-#    x_gen = np.cast[np.float32]((x_gen - 127.5) / 127.5) # input to pixelCNN is scaled from uint8 [0,255] to float in range [-1,1]
-#    x_sample = np.rot90(x_gen[s], k=-k, axes=(0,1)).copy()
-#    m_sample = np.rot90(masks[s], k=-k, axes=(0,1)).copy()
-#    
-#    label = labels[s]
-
-
-#    x_gen[:,...] = x_sample
-#    masks[:,...] = m_sample
-#    for i,k in enumerate(np.concatenate(y_sample, axis=0)):
-#        if i==0:
-#            continue
-#        x_gen[i] = np.rot90(x_gen[i], k=k, axes=(0,1))
-#        masks[i] = np.rot90(masks[i], k=k, axes=(0,1))
-#    x_gen = np.split(x_gen, args.nr_gpu)
-#    masks = np.split(masks, args.nr_gpu)
+        gen_par = model(xs[i], h_sample[i], ema=ema, dropout_p=0, **model_opt)
+        new_x_gen.append(nn.sample_from_discretized_mix_logistic(gen_par, args.nr_logistic_mix))
+def sample_from_model(sess):
+    x_gen = [np.zeros((args.batch_size,) + obs_shape, dtype=np.float32) for i in range(args.nr_gpu)]
     for yi in range(obs_shape[0]):
         for xi in range(obs_shape[1]):
-            new_x_gen_np = sess.run(new_x_gen, {xs[i]: x_gen[i] for i in range(args.nr_gpu*2)})
+            new_x_gen_np = sess.run(new_x_gen, {xs[i]: x_gen[i] for i in range(args.nr_gpu)})
             for i in range(args.nr_gpu):
                 x_gen[i][:,yi,xi,:] = new_x_gen_np[i][:,yi,xi,:]
-#                x_gen[i][:,yi,xi,:] = new_x_gen_np[i][:,yi,xi,:]*(1-masks[i][:,yi,xi,:])+x_gen[i][:,yi,xi,:]*masks[i][:,yi,xi,:]
     return np.concatenate(x_gen, axis=0)
-#    x_gen = np.concatenate(x_gen, axis=0)
-#    masks = np.concatenate(masks, axis=0)
-    # color black fill-in as red, white fill-in as green
-#    black_inds = ( (x_gen)*(1-masks) == -1 )
-#    white_inds = np.cast[np.bool]( (~black_inds)*(1-masks) )
-#    x_gen[black_inds[...,0],0] = 1
-#    x_gen[white_inds[...,0],0] = -1
-#    x_gen[white_inds[...,2],2] = -1
-    # first sample is the real sample
-#    x_gen[0] = x_sample
-    # rotate back
-#    x_gen = np.concatenate(x_gen, axis=0)
-#    x_gen_unrot = x_gen.copy()
-#    for i,k in enumerate(np.concatenate(y_sample, axis=0)):
-#        if i==0:
-#            continue
-#        x_gen_unrot[i] = np.rot90(x_gen_unrot[i], k=-k, axes=(0,1))
-#    return x_gen, x_gen_unrot, label
 
 
 # init & save
 initializer = tf.global_variables_initializer()
 saver = tf.train.Saver()
 
+def flip_rotate(x, y):
+    '''
+    flips and/or rotates a single image according to label y
+    y is encoded to represent flips and rotations
+    y \in {0..7} or y \in {-7..-1} for reversing rotations\flips
+    flip indicator = y // 4 ( or y <= -4 in the negative case )
+    rotation angle = (y % 4) * 90 degrees
+    because of dihedral group D4 structure, in some cases the order of flip/rotation
+    matters, and is dealt with accordingly.
+    '''
+    if y // 4 == 1 or y == -4 or y == -6:
+        x = np.flip(x, len(x.shape)-2)
+    if len(x.shape) == 4:
+        x = np.rot90(x, k= y % 4, axes=(1,2))
+    else:
+        x = np.rot90(x, k= y % 4)
+    if y == -5 or y == -7:
+        x = np.flip(x, len(x.shape)-2)
+    return x
+
+def adaptive_rotation(x, y):
+    if y is None:
+        pass
+    elif type(y)==int:
+        x = flip_rotate(x, y)
+    else:
+        for j in range(len(y)):
+            x[j] = flip_rotate(x[j], y[j])
+    return x
+
 # turn numpy inputs into feed_dict for use with tensorflow
-def make_feed_dict(data, init=False):
+def make_feed_dict(data, init=False, test=False):
+    '''
+    contract: class_conditional => randomize_labels must be at the same time
+    '''
     if type(data) is tuple and len(data)==2:
         x,m = data
         y = None
-    elif type(data) is tuple and len(data)==3:
-        x,y,m = data
-    else:
-        x = data
-        y = None
+        x = adaptive_rotation(x, args.rotation)
+
+    # randomize labels by selecting one random label per batch, unrotate and 
+    # unflip if necessary, turn off when testing
+    if args.randomize_labels and test is not True:        
+        x = adaptive_rotation(x, -args.rotation)
+        y = np.zeros(x.shape[0], dtype=np.int32)
+        y.fill(np.random.randint(8))
+        x = adaptive_rotation(x, y)
+
     x = np.cast[np.float32]((x - 127.5) / 127.5) # input to pixelCNN is scaled from uint8 [0,255] to float in range [-1,1]
     
-    # TODO: FIX THIS!!!! (randomly) rotate batch 
-    if args.rotation is None:
-        k = np.random.randint(4)
-        y.fill(k)
-    else:
-        k = args.rotation
-    x = np.rot90(x, k=k, axes=(1,2))
-    m = np.rot90(m, k=k, axes=(1,2))
-    
-    if init:
+    if init: # we don't call init=True with test=True...
+        if args.randomize_labels: # in case y is some const
+            x = adaptive_rotation(x, -y)
+            y = np.arange(x.shape[0]) % 8
+            x = adaptive_rotation(x, y)
         feed_dict = {x_init: x}
-        if y is not None and args.class_conditional:
+        if args.class_conditional:
             feed_dict.update({y_init: y})
     else:
-        x = np.split(x, args.nr_gpu*2)
-        feed_dict = {xs[i]: x[i] for i in range(args.nr_gpu*2)}
-        if y is not None and args.class_conditional:
+        x = np.split(x, args.nr_gpu)
+        feed_dict = {xs[i]: x[i] for i in range(args.nr_gpu)}
+        if args.class_conditional:
+            y = np.zeros(args.batch_size * args.nr_gpu, dtype=np.int32)
+            y.fill(args.rotation)
             y = np.split(y, args.nr_gpu)
-            feed_dict.update({ys[i]: y[i] for i in range(args.nr_gpu*2)})
+            feed_dict.update({ys[i]: y[i] for i in range(args.nr_gpu)})
     return feed_dict
 
 # //////////// perform training //////////////
 if not os.path.exists(args.save_dir):
     os.makedirs(args.save_dir)
+    
 # save hyperparms to file
 with open(os.path.join(args.save_dir,'hyperparams.txt'),'w') as f:
     f.write(json.dumps(vars(args), indent=4, separators=(',',':')))
@@ -241,7 +232,6 @@ test_loss_gen = np.inf
 lr = args.learning_rate
 config = tf.ConfigProto()
 config.gpu_options.allow_growth = True
-#gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8)
 
 # early stopping params
 patience = 150
@@ -255,68 +245,63 @@ stop_training = False
 with tf.Session(config=config) as sess:
     for epoch in range(args.max_epochs):
         begin = time.time()
-
+        
         # init
         if epoch == 0:
+            # manually retrieve exactly init_batch_size examples
+            feed_dict = make_feed_dict(
+                train_data.next(args.init_batch_size), init=True)
+            train_data.reset()  # rewind the iterator back to 0 to do one full epoch
+            sess.run(initializer, feed_dict)
             print('initializing the model...')
-            if not args.just_gen:
-                feed_dict = make_feed_dict(train_data.next(args.init_batch_size), init=True) # manually retrieve exactly init_batch_size examples
-                train_data.reset()  # rewind the iterator back to 0 to do one full epoch
-                sess.run(initializer, feed_dict)
-            elif args.load_params:
+            if args.load_params:
                 ckpt_file = args.save_dir + '/params_' + args.data_set + '.ckpt'
                 print('restoring parameters from', ckpt_file)
                 saver.restore(sess, ckpt_file)
-            else:
-                print("error, can't generate samples without loading params.")
-                sys.exit(-1)
-        
-        if not args.just_gen:
-            # train for one epoch
-            train_losses = []
-            for d in tqdm(train_data):
-                feed_dict = make_feed_dict(d)
-                # forward/backward/update model on each gpu
-                lr *= args.lr_decay
-                feed_dict.update({ tf_lr: lr })
-                l,_ = sess.run([bits_per_dim, optimizer], feed_dict)
-                train_losses.append(l)
-            train_loss_gen = np.mean(train_losses)
-    
-            # compute likelihood over test data
-            test_losses = []
-            for d in test_data:
-                feed_dict = make_feed_dict(d)
-                l = sess.run(bits_per_dim_test, feed_dict)
-                test_losses.append(l)
-            test_loss_gen = np.mean(test_losses)
-            test_bpd.append(test_loss_gen)
-    
-            # log progress to console
-            print("Iteration %d, time = %ds, train bits_per_dim = %.4f, test bits_per_dim = %.4f" % (epoch, time.time()-begin, train_loss_gen, test_loss_gen))
-            sys.stdout.flush()
+
+        # train for one epoch
+        train_losses = []
+        for d in tqdm(train_data):
+            feed_dict = make_feed_dict(d)
+            # forward/backward/update model on each gpu
+            lr *= args.lr_decay
+            feed_dict.update({ tf_lr: lr })
+            l,_ = sess.run([bits_per_dim, optimizer], feed_dict)
+            train_losses.append(l)
+        train_loss_gen = np.mean(train_losses)
+
+        # compute likelihood over test data
+        test_losses = []
+        for d in test_data:
+            feed_dict = make_feed_dict(d, test=True)
+            l = sess.run(bits_per_dim_test, feed_dict)
+            test_losses.append(l)
+        test_loss_gen = np.mean(test_losses)
+        test_bpd.append(test_loss_gen)
+
+        # log progress to console
+        print("Iteration %d, time = %ds, train bits_per_dim = %.4f, test bits_per_dim = %.4f" % (epoch, time.time()-begin, train_loss_gen, test_loss_gen))
+        sys.stdout.flush()
                    
         if epoch % args.gen_interval == 0 and epoch > 0:
             # generate samples from the model
             print('generating samples from model...')
-            data = test_data.next()
-            test_data.reset()
-
             def print_samples(sample_x, suffix=''):
                 img_tile = plotting.img_tile(sample_x[:int(np.floor(np.sqrt(args.batch_size*args.nr_gpu))**2)], aspect_ratio=1.0, border_color=1.0, stretch=True).squeeze()
-                img = plotting.plot_img(img_tile, title=args.data_set + ' samples')
+                plotting.plot_img(img_tile, title=args.data_set + ' samples')
                 plotting.plt.savefig(os.path.join(args.save_dir,'%s_sample%d%s.png' % (args.data_set, epoch, suffix)))
                 plotting.plt.close('all')
-
-            sample_x = sample_from_model(sess, data)
+            sample_x = sample_from_model(sess)
             print_samples(sample_x)
             print('done.')
             
         # save params via early stopping
         current = test_loss_gen
+        current_train = train_loss_gen
 
         if np.less(current - min_delta, best):
             best = current
+            best_train = current_train
             wait = 0
             print('Saving model params...', end='')
             saver.save(sess, args.save_dir + '/params_' + args.data_set + '.ckpt')
@@ -326,6 +311,7 @@ with tf.Session(config=config) as sess:
             if wait >= patience:
                 stopped_epoch = epoch
                 print('Epoch %05d: early stopping' % (stopped_epoch))
+                print("Best iteration: %d, train bits_per_dim = %.4f, test bits_per_dim = %.4f" % (stopped_epoch-patience, best_train, best))
                 stop_training = True
             wait += 1
             
