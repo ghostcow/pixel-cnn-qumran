@@ -155,5 +155,5 @@ class DataLoader(object):
         m = self.masks[self.p : self.p + n]
         self.p += self.batch_size
         
-        return x,m
+        return x.copy(),m.copy()
     next = __next__  # Python 2 compatibility (https://stackoverflow.com/questions/29578469/how-to-make-an-object-both-a-python2-and-python3-iterator)
