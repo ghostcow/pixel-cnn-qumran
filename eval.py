@@ -252,7 +252,7 @@ def get_likelihood(sess, x, y):
     return sess.run(log_prob, feed_dict)
 
 # init & save
-initializer = tf.initialize_all_variables()
+initializer = tf.global_variables_initializer()
 saver = tf.train.Saver()
 
 
