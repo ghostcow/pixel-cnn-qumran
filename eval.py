@@ -245,11 +245,6 @@ def sample_from_model(sess, x_gen, y, masks):
 
 
 def get_likelihood(sess, x, y):
-    # stupid fix for stupid bug
-    in1 = (y==1)
-    in4 = (y==4)
-    y[in1] = 4
-    y[in4] = 1
     x = np.split(x, args.nr_gpu)
     y = np.split(y, args.nr_gpu)
     feed_dict = {xs[i]: x[i] for i in range(args.nr_gpu)}
