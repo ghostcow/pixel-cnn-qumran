@@ -230,7 +230,7 @@ def sample_from_model(sess, x_gen, y, masks):
     """
     x_col = x_gen.repeat(3, 3).copy()
     masks = masks.repeat(3, 3).copy()
-    # color black fill-in as red, white fill-in as green
+    # color black fill-in as purple, white fill-in as yellow
     black_inds = ( (x_col)*(1-masks) == -1 )
     white_inds = np.cast[np.bool]( (~black_inds)*(1-masks) )
     x_col[black_inds[...,0],0] = ((102 - 127.5) / 127.5)
