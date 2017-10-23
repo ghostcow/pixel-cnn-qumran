@@ -39,6 +39,9 @@ parser.add_argument('--findWMin', type=int, default=40,
                     help='bounding box minimum width')
 parser.add_argument('--findT', type=int, default=15,
                     help='maximum space between lowest and highest connected component in the bounding box')
+# Miscellaneous
+parser.add_argument('--debug', action='store_true',
+                    help='Debug mode')
 args = parser.parse_args()
 
 print('input args:\n', json.dumps(vars(args), indent=4, separators=(',',':'))) # pretty print args
@@ -101,6 +104,9 @@ with open('letter_spotting/algorithm/get_default_cfg.m', 'w') as f:
 import os
 import subprocess
 os.chdir('letter_spotting')
-subprocess.call(['matlab', '-nodisplay', '-nosplash', '-nodesktop', '-r', '''try, run('run_comp.m'); catch ME, rethrow(ME); exit(1); end; exit;
-'''])
+if args.debug:
+    cmd = '''try, run('run_comp.m'); catch ME, rethrow(ME); exit(1); end; exit;'''
+else:
+    cmd = '''try, run('run_comp.m'); catch, exit(1); end; exit;'''
+subprocess.call(['matlab', '-nodisplay', '-nosplash', '-nodesktop', '-r', cmd])
 os.chdir('..')

@@ -37,7 +37,7 @@ disp(['Running ' set.pagesDir]);
 PPP = pre_process_pages2(docs,sParam,set.pagesDir,cache,PPP_file);
 
 % 3. read/build segments and create a model
-Segments=build_windows_parfor(PPP, sParam,set.segDir,segFile,cache);
+Segments = build_windows_parfor(PPP, sParam,set.segDir,segFile,cache);
 [Candidates, AllCandidates]=prepare_segments (Segments);
 save_image_candidates(Candidates, docs,PPP,set.segDir);
 
