@@ -2,9 +2,9 @@ Instructions for running word spotting:
 
 1. Extract the files from the zip file to a certain location. Keep everything as it is even the empty directories.
    You also need to download vlfeat and follow the instructions on-line according to your operating system.
-   Add the vlfeat directory to the Word Spotting folder.
+   Add the vlfeat directory to the letter_spotting folder.
 
-2. Copy all the documents to 'comp/Segmentation-free_Dataset/Documents'
+2. Copy the document to 'comp/Segmentation-free_Dataset/Documents'
 
 3. The main function is 'run_comp'. When running the code for the first time make sure all the parameters are set properly
    in the beginning of the main function, and set the parameters in the configuration function 'get_default_cfg'

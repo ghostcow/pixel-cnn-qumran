@@ -34,7 +34,7 @@ disp(['Running ' set.pagesDir]);
 
 % Creating the model - reading pages, preprocessing, finding candidates, and building the model
 % 1. read pages
-[docs,dic] =read_pages(set.pagesDir, imgExt, cache,pathToDocs,pfile);
+[docs,dic] = read_pages(set.pagesDir, imgExt, cache, pathToDocs, pfile);
 
 % 2. preprocessing pages
 PPP = pre_process_pages2(docs,sParam,set.pagesDir,cache,PPP_file);

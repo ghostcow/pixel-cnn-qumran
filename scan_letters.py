@@ -98,6 +98,9 @@ with open('letter_spotting/algorithm/get_default_cfg.m', 'w') as f:
     f.write(default_config_fn.format(**vars(args)))
 
 # call run_comp
+import os
 import subprocess
+os.chdir('letter_spotting')
 subprocess.call(['matlab', '-nodisplay', '-nosplash', '-nodesktop', '-r', '''"try, run('run_comp.m'); catch, exit(1); end; exit;"
 '''])
+os.chdir('..')
