@@ -9,8 +9,8 @@ for i=1:numel(files)
     fname = fullfile(ImagesDir,files{i}); 
     I=imread(fname);   
 %     I_resized = imresize(I,0.5);
-    figure
-    imshow(I);
+    %figure
+    %imshow(I);
     % Base algorithm with static parameters
     tic
     bimg = binarizeImage(I);

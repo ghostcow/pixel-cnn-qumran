@@ -57,7 +57,7 @@ for i=1:num_proccess
 
     %save the new BW page
     imwrite(newBW,Pages_path);
-    imshow(newBW)
+    %imshow(newBW)
     Bench.PagesName{i} = Pages_path;
 
     % for debugging:
