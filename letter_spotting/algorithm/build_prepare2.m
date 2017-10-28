@@ -15,7 +15,7 @@ BW_dir='BW';
 num_proccess = Bench.PagesNumber;
 for i=1:num_proccess
 
-    Bench.Names{i} = docs(i).Name
+    Bench.Names{i} = docs(i).Name;
 
     img2=docs(i).Im;
     if isempty(img2)

@@ -21,7 +21,7 @@ for i=1:numel(Candidates)
         x1 = max(1,a(j,1));
         x2 = min(size(new,2),a(j,2));
         b = new(y1:y2,x1:x2);
-        name = sprintf('%s/letters_%d/%s_%d.jpg', segDir, i, PPP.Names{i}, j);
+        name = sprintf('%s/letters_%d/%s_%05d.jpg', segDir, i, PPP.Names{i}, j);
         imwrite(b, name, 'jpg');
     end
 end

@@ -45,7 +45,7 @@ end
 
 function [docs,dic] = create_struct_docs(docs,d2,pathToImage,dic,j,imgExt)
 
-len = size(imgExt,1);
+len = strlength(imgExt);
 
 docs(j).pathImage =pathToImage; % full path to file
 docs(j).Name = d2{j}(1:end-len);
