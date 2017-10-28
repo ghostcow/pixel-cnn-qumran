@@ -32,7 +32,7 @@ dic = [];
 % reading the documents and creating the docs struct
 for i=1:numDocs
         pathToImage = fullfile(pagesDir,pathToDocs,d2{i});
-       [docs,dic] = create_struct_docs(docs,d2,pathToImage,dic,i);
+       [docs,dic] = create_struct_docs(docs,d2,pathToImage,dic,i,imgExt);
 end
 
 
@@ -43,9 +43,9 @@ end
 end
 
 
-function [docs,dic] = create_struct_docs(docs,d2,pathToImage,dic,j)
+function [docs,dic] = create_struct_docs(docs,d2,pathToImage,dic,j,imgExt)
 
-len=4;
+len = size(imgExt,1);
 
 docs(j).pathImage =pathToImage; % full path to file
 docs(j).Name = d2{j}(1:end-len);
