@@ -1,10 +1,6 @@
 
 function save_image_candidates(Candidates, docs,PPP,segDir)
 
-if ~exist(sprintf('%s/Cand3',segDir))
-    mkdir(sprintf('%s/Cand3',segDir));
-end
-
 p = PPP.BWName;
 disp('Start parfor');
 for i=1:numel(Candidates)
