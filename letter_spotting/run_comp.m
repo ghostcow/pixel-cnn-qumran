@@ -41,11 +41,7 @@ Segments = build_windows_parfor(PPP, sParam,set.segDir,segFile,cache);
 [Candidates, AllCandidates]=prepare_segments (Segments);
 save_image_candidates(Candidates, docs,PPP,set.segDir);
 
-% 4. save params to file
-save(fullfile(set.segDir, 'config.mat'), 'sParam');
-
 % DEBUGGING - saving the documents with markings of the bounding boxes.
 % (it will be saved in the segments directory, under a directory named 'Cand', and 'Cand2' for BW inverted)
-
 % draw_squares(Segments,PPP,docs,set.segDir) %UNCOMMENT THIS LINE FOR  DEBUGGING
 
