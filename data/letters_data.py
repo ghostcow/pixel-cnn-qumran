@@ -84,20 +84,21 @@ class DataLoader(object):
             print('creating folder', data_dir)
             os.makedirs(data_dir)
 
-        # load CIFAR-10 training data to RAM
+        # load training data to RAM
         self.data, self.labels, self.masks = load(data_dir, subset=subset)
         
         self.size = len(self.data)
-        
+
+        # if using data from only a single angle of rotation, drop the rest
         if self.single_ar and self.rotation is not None:
             y = get_orientations(self.masks)
             inds = (y == self.rotation)
             self.data = self.data[inds]
             self.masks = self.masks[inds]
             self.size = len(self.data)
-        
+
+        # pad batch with zeros if necessary
         if pad:
-            # padding!!
             csz = self.size
             sz = csz + (self.batch_size - csz % self.batch_size )
             psz = [sz] + list(self.masks.shape[1:])

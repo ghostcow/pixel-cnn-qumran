@@ -98,7 +98,7 @@ gen_par = model(x_init, h_init, init=True, dropout_p=args.dropout_p, **model_opt
 # keep track of moving average
 all_params = tf.trainable_variables()
 ema = tf.train.ExponentialMovingAverage(decay=args.polyak_decay)
-maintain_averages_op = tf.group(ema.apply(all_params))
+maintain_averages_op = tf.group(ema.apply(all_paramms))
 
 # get loss gradients over multiple GPUs
 grads = []

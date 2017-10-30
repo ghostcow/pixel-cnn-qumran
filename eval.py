@@ -199,6 +199,8 @@ for i in range(args.nr_gpu):
     with tf.device('/gpu:%d' % i):
         gen_par = model(xs[i], hs[i], ema=ema, dropout_p=0, **model_opt)
         new_x_gen.append(nn.sample_from_discretized_mix_logistic(gen_par, args.nr_logistic_mix))
+
+
 def sample_from_model(sess, x_gen, y, masks):
     
     x_gen = np.cast[np.float32]((x_gen - 127.5) / 127.5) # input to pixelCNN is scaled from uint8 [0,255] to float in range [-1,1]
@@ -346,6 +348,7 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
         average_psnrs.append(psnr_avg)
         std_psnrs.append(psnr_std)
         sys.stdout.flush()
+
     # show stats summary
     if len(average_psnrs)>0:
         print("mean average psnr: {}, std over averages: {}, mean psnr std: {}, std over stds: {}".format(
