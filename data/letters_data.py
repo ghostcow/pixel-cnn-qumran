@@ -4,25 +4,16 @@ import os
 import sys
 import numpy as np
 from scipy.ndimage import measurements as me
+from data.caching import load_data
 
-def unpickle(file):
-    fo = open(file, 'rb')
-    if (sys.version_info >= (3, 0)):
-        import pickle
-        d = pickle.load(fo)
-    else:
-        import cPickle
-        d = cPickle.load(fo)
-    fo.close()
-    return {'x': d['data'], 'y': d['labels'], 'm': d['masks']}
 
 def load(data_dir, subset='train'):
     if subset=='train':
-        train_data = unpickle(os.path.join(data_dir,'letters_train.pkl'))
-        return train_data['x'][...,0,np.newaxis], train_data['y'], train_data['m'][...,0,np.newaxis]
+        return load_data(os.path.join(data_dir, 'train'))
+    elif subset=='val':
+        return load_data(os.path.join(data_dir, 'val'))
     elif subset=='test':
-        test_data = unpickle(os.path.join(data_dir,'letters_test.pkl'))
-        return test_data['x'][...,0,np.newaxis], test_data['y'], test_data['m'][...,0,np.newaxis]
+        return load_data(os.path.join(data_dir, 'test'))
     else:
         raise NotImplementedError('subset should be either train or test')
 
@@ -63,7 +54,7 @@ def get_orientations(ms):
 class DataLoader(object):
     """ an object that generates batches of data for training """
 
-    def __init__(self, data_dir, subset, batch_size, rng=None, shuffle=False, return_labels=False, rotation=None, single_ar=False, pad=False):
+    def __init__(self, data_dir, subset, batch_size, rng=None, shuffle=False, return_labels=False, rotation=None, single_angle=False, pad=False):
         """ 
         - data_dir is location where to store files
         - subset is train|test 
@@ -77,7 +68,7 @@ class DataLoader(object):
         self.shuffle = shuffle
         self.return_labels = return_labels
         self.rotation = rotation
-        self.single_ar = single_ar
+        self.single_angle = single_angle
 
         # create temporary storage for the data, if not yet created
         if not os.path.exists(data_dir):
@@ -85,12 +76,13 @@ class DataLoader(object):
             os.makedirs(data_dir)
 
         # load training data to RAM
-        self.data, self.labels, self.masks = load(data_dir, subset=subset)
+        self.data, self.masks = load(data_dir, subset=subset)
         
         self.size = len(self.data)
 
         # if using data from only a single angle of rotation, drop the rest
-        if self.single_ar and self.rotation is not None:
+        if self.single_angle and self.rotation is not None:
+            assert self.masks.shape[0] > 0, "Error! Must have masks to determine correct orientation of all letters."
             y = get_orientations(self.masks)
             inds = (y == self.rotation)
             self.data = self.data[inds]
@@ -102,10 +94,11 @@ class DataLoader(object):
             csz = self.size
             sz = csz + (self.batch_size - csz % self.batch_size )
             psz = [sz] + list(self.masks.shape[1:])
-    
-            zmasks = np.cast[self.masks.dtype](np.zeros(psz))
-            zmasks[:csz] = self.masks
-            self.masks = zmasks
+
+            if self.masks.shape[0] > 0:
+                zmasks = np.cast[self.masks.dtype](np.zeros(psz))
+                zmasks[:csz] = self.masks
+                self.masks = zmasks
             
             zdata = np.cast[self.data.dtype](np.zeros(psz))
             zdata[:csz] = self.data
@@ -144,7 +137,8 @@ class DataLoader(object):
         if self.p == 0 and self.shuffle:
             inds = self.rng.permutation(self.data.shape[0])
             self.data = self.data[inds]
-            self.masks = self.masks[inds]
+            if self.masks.shape[0] > 0:
+                self.masks = self.masks[inds]
 
         # on last iteration reset the counter and raise StopIteration
         if self.p + n > self.data.shape[0]:
@@ -153,7 +147,10 @@ class DataLoader(object):
 
         # on intermediate iterations fetch the next batch
         x = self.data[self.p : self.p + n]
-        m = self.masks[self.p : self.p + n]
+        if self.masks.shape[0] > 0:
+            m = self.masks[self.p : self.p + n]
+        else:
+            m = self.masks
         self.p += self.batch_size
         
         return x.copy(),m.copy()
