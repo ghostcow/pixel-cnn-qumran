@@ -28,9 +28,10 @@ parser = argparse.ArgumentParser()
 # data I/O
 parser.add_argument('-i', '--data_dir', type=str, default='/tmp/pxpp/data', help='Location for the dataset')
 parser.add_argument('-o', '--save_dir', type=str, default='/tmp/pxpp/save', help='Location for parameter checkpoints and samples')
-parser.add_argument('-d', '--data_set', type=str, default='letters', help='Can be either cifar|imagenet|letters')
+parser.add_argument('-d', '--data_set', type=str, default='letters', help='Currently supports only letters')
 parser.add_argument('-t', '--gen_interval', type=int, default=20, help='Every how many epochs to write checkpoint/samples?')
 parser.add_argument('-r', '--load_params', dest='load_params', action='store_true', help='Restore training from previous model checkpoint?')
+parser.add_argument('--gpu_mem_frac', type=float, default=1.0, help='Limit GPU memory to this fraction of itself during session')
 # model
 parser.add_argument('-q', '--nr_resnet', type=int, default=5, help='Number of residual blocks per stage of the model')
 parser.add_argument('-n', '--nr_filters', type=int, default=160, help='Number of filters to use across the model. Higher = larger model.')
@@ -96,7 +97,7 @@ gen_par = model(x_init, h_init, init=True, dropout_p=args.dropout_p, **model_opt
 # keep track of moving average
 all_params = tf.trainable_variables()
 ema = tf.train.ExponentialMovingAverage(decay=args.polyak_decay)
-maintain_averages_op = tf.group(ema.apply(all_paramms))
+maintain_averages_op = tf.group(ema.apply(all_params))
 
 # get loss gradients over multiple GPUs
 grads = []
@@ -228,8 +229,9 @@ val_bpd = []
 min_val_loss = np.inf
 val_loss_gen = np.inf
 lr = args.learning_rate
+
 config = tf.ConfigProto()
-config.gpu_options.allow_growth = True
+config.gpu_options.per_process_gpu_memory_fraction = max(min(args.gpu_mem_frac, 1.0), 0.0)
 
 # early stopping params
 patience = 150
