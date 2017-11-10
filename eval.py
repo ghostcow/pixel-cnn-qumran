@@ -31,8 +31,9 @@ parser = argparse.ArgumentParser()
 # data I/O
 parser.add_argument('-i', '--data_dir', type=str, default='data/letters_data', help='Location for the dataset')
 parser.add_argument('-o', '--save_dir', type=str, default='data/letters_data/checkpoints', help='Location for parameter checkpoints and samples')
-parser.add_argument('-d', '--data_set', type=str, default='letters', help='Can be either cifar|imagenet|letters')
+parser.add_argument('-d', '--data_set', type=str, default='letters', help='Can be letters')
 parser.add_argument('-r', '--load_params', dest='load_params', action='store_true', help='Restore training from previous model checkpoint?')
+parser.add_argument('--gpu_mem_frac', type=float, default=1.0, help='Limit GPU memory to this fraction of itself during session')
 # model
 parser.add_argument('-q', '--nr_resnet', type=int, default=5, help='Number of residual blocks per stage of the model')
 parser.add_argument('-n', '--nr_filters', type=int, default=160, help='Number of filters to use across the model. Higher = larger model.')
@@ -55,6 +56,7 @@ parser.add_argument('-u', '--single_ar', dest='single_ar', action='store_true', 
 parser.add_argument('-w', '--suffix', type=str, default='', help='Suffix for saved results')
 parser.add_argument('-v', '--adaptive_rotation', dest='adaptive_rotation', action='store_true', help='Adaptive rotation (for 4-way single model)')
 parser.add_argument('-y', '--test_padding', dest='test_padding', action='store_true', help='Pad test set so num samples is divisible by batch size')
+parser.add_argument('--num_psnr_trials', type=int, default=3, help='Number of times to complete test letters for Average PSNR calculations.')
 # reproducibility
 parser.add_argument('-s', '--seed', type=int, default=1, help='Random seed to use')
 args = parser.parse_args()
@@ -66,10 +68,10 @@ rng = np.random.RandomState(args.seed)
 tf.set_random_seed(args.seed)
 
 # initialize data loaders for train/test splits
-if args.data_set == 'imagenet' and args.class_conditional:
-    raise("We currently don't have labels for the small imagenet data set")
-DataLoader = {'cifar':cifar10_data.DataLoader, 'imagenet':imagenet_data.DataLoader, 'letters':letters_data.DataLoader}[args.data_set]
-test_data = DataLoader(args.data_dir, 'test', args.batch_size * args.nr_gpu, shuffle=False, return_labels=args.class_conditional, rotation=args.rotation, single_ar=args.single_ar, pad=args.test_padding)
+DataLoader = {'letters':letters_data.DataLoader}[args.data_set]
+test_data = DataLoader(args.data_dir, 'test', args.batch_size * args.nr_gpu,
+                       shuffle=False, return_labels=args.class_conditional,
+                       rotation=args.rotation, single_ar=args.single_ar, pad=args.test_padding)
 if test_data.size == 0:
     print('Nothing to evaluate, test_data size is 0.')
     sys.exit(0)
@@ -267,8 +269,11 @@ sys.stdout.flush()
 min_test_loss = np.inf
 test_loss_gen = np.inf
 lr = args.learning_rate
-gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8)
-with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
+
+config = tf.ConfigProto()
+config.gpu_options.per_process_gpu_memory_fraction = max(min(args.gpu_mem_frac, 1.0), 0.0)
+
+with tf.Session(config=tf.ConfigProto(gpu_options=config)) as sess:
     begin = time.time()
 
     # init
@@ -293,7 +298,7 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
     sys.stdout.flush()
     average_psnrs=[]
     std_psnrs=[]
-    for run in range(10):
+    for run in range(args.num_psnr_trials):
         gen_data = []
         # generate samples from the model
         for data in tqdm(test_data):
@@ -318,6 +323,15 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
                 x[j] = flip_rotate(x[j], -y[j])
                 m[j] = flip_rotate(m[j], -y[j])
                 colored_x[j] = flip_rotate(colored_x[j], -y[j])
+
+            '''
+            save data in the following format: 
+            1. Letter completions (sample_x)
+            2. Input images (x)
+            3. Input masks (m)
+            4. Probabilities of completions (sample_prob)
+            5. Completions with the completed area colored (colored_x)
+            '''
             gen_data.append((sample_x, x, m, sample_prob, colored_x))
 
         # if just generate, print out samples and quit
