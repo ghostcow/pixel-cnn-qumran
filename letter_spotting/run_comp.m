@@ -1,7 +1,8 @@
 clear
-addpath('algorithm', 'general', 'comp',' vlfeat');
-if ~exist('vl_version','file'), run('vlfeat/toolbox/vl_setup.m'); end
+%addpath('algorithm', 'general', 'comp',' vlfeat');
+%if ~exist('vl_version','file'), run('vlfeat/toolbox/vl_setup.m'); end
 addpath('algorithm', 'general', 'comp');
+%addpath('algorithm', 'general', 'comp');
 
 seg_based = 'comp/Segmentation-based_';
 seg_free  = 'comp/Segmentation-free_';
