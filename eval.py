@@ -46,14 +46,14 @@ parser.add_argument('-e', '--lr_decay', type=float, default=0.999995, help='Lear
 parser.add_argument('-b', '--batch_size', type=int, default=12, help='Batch size during training per GPU')
 parser.add_argument('-a', '--init_batch_size', type=int, default=100, help='How much data to use for data-dependent initialization.')
 parser.add_argument('-p', '--dropout_p', type=float, default=0.5, help='Dropout strength (i.e. 1 - keep_prob). 0 = No dropout, higher = more dropout.')
-parser.add_argument('-x', '--max_epochs', type=int, default=601, help='How many epochs to run in total?')
 parser.add_argument('-g', '--nr_gpu', type=int, default=4, help='How many GPUs to distribute the training across?')
+parser.add_argument('--gpu_mem_frac', type=float, default=1.0, help='Limit GPU memory to this fraction of itself during session')
 # evaluation
 parser.add_argument('--polyak_decay', type=float, default=0.9995, help='Exponential decay rate of the sum of previous model iterates during Polyak averaging')
 parser.add_argument('-j', '--just_gen', dest='just_gen', action='store_true', help='Just generate samples without training.')
-parser.add_argument('-u', '--single_ar', dest='single_ar', action='store_true', help='Test samples of one orientation only.')
+parser.add_argument('-u', '--single_angle', dest='single_angle', action='store_true', help='Test samples of one orientation only.')
 parser.add_argument('-w', '--suffix', type=str, default='', help='Suffix for saved results')
-parser.add_argument('-v', '--adaptive_rotation', dest='adaptive_rotation', action='store_true', help='Adaptive rotation (for 4-way single model)')
+parser.add_argument('-v', '--adaptive_rotation', dest='adaptive_rotation', action='store_true', help='Adaptive rotation (for 8-way single model)')
 parser.add_argument('-y', '--test_padding', dest='test_padding', action='store_true', help='Pad test set so num samples is divisible by batch size')
 # reproducibility
 parser.add_argument('-s', '--seed', type=int, default=1, help='Random seed to use')
@@ -69,7 +69,7 @@ tf.set_random_seed(args.seed)
 if args.data_set == 'imagenet' and args.class_conditional:
     raise("We currently don't have labels for the small imagenet data set")
 DataLoader = {'cifar':cifar10_data.DataLoader, 'imagenet':imagenet_data.DataLoader, 'letters':letters_data.DataLoader}[args.data_set]
-test_data = DataLoader(args.data_dir, 'test', args.batch_size * args.nr_gpu, shuffle=False, return_labels=args.class_conditional, rotation=args.rotation, single_ar=args.single_ar, pad=args.test_padding)
+test_data = DataLoader(args.data_dir, 'test', args.batch_size * args.nr_gpu, shuffle=False, return_labels=args.class_conditional, rotation=args.rotation, single_angle=args.single_angle, pad=args.test_padding)
 if test_data.size == 0:
     print('Nothing to evaluate, test_data size is 0.')
     sys.exit(0)
@@ -267,7 +267,7 @@ sys.stdout.flush()
 min_test_loss = np.inf
 test_loss_gen = np.inf
 lr = args.learning_rate
-gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8)
+gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=args.gpu_mem_frac)
 with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
     begin = time.time()
 

@@ -55,9 +55,9 @@ class DataLoader(object):
     """ an object that generates batches of data for training """
 
     def __init__(self, data_dir, subset, batch_size, rng=None, shuffle=False, return_labels=False, rotation=None, single_angle=False, pad=False):
-        """ 
+        """
         - data_dir is location where to store files
-        - subset is train|test 
+        - subset is train|val|test
         - batch_size is int, of #examples to load at once
         - rng is np.random.RandomState object for reproducibility
         - self.test indicates if we are in adaptive rotation mode with single model per rotation or not
@@ -77,7 +77,7 @@ class DataLoader(object):
 
         # load training data to RAM
         self.data, self.masks = load(data_dir, subset=subset)
-        
+
         self.size = len(self.data)
 
         # if using data from only a single angle of rotation, drop the rest
@@ -99,14 +99,14 @@ class DataLoader(object):
                 zmasks = np.cast[self.masks.dtype](np.zeros(psz))
                 zmasks[:csz] = self.masks
                 self.masks = zmasks
-            
+
             zdata = np.cast[self.data.dtype](np.zeros(psz))
             zdata[:csz] = self.data
             self.data = zdata
-        
+
             print('loaded {} samples in orientation {}, totalling with {} padding'.format(
                     self.size, self.rotation, sz))
-        
+
         self.p = 0 # pointer to where we are in iteration
         self.rng = np.random.RandomState(1) if rng is None else rng
 
