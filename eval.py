@@ -50,7 +50,6 @@ parser.add_argument('--gpu_mem_frac', type=float, default=1.0, help='Limit GPU m
 parser.add_argument('--polyak_decay', type=float, default=0.9995, help='Exponential decay rate of the sum of previous model iterates during Polyak averaging')
 parser.add_argument('-j', '--just_gen', dest='just_gen', action='store_true', help='Just generate samples without training.')
 parser.add_argument('-u', '--single_angle', dest='single_angle', action='store_true', help='Test samples of one orientation only.')
-parser.add_argument('-w', '--suffix', type=str, default='', help='Suffix for saved results')
 parser.add_argument('-v', '--adaptive_rotation', dest='adaptive_rotation', action='store_true', help='Adaptive rotation (for 8-way single model)')
 parser.add_argument('-y', '--test_padding', dest='test_padding', action='store_true', help='Pad test set so num samples is divisible by batch size')
 parser.add_argument('--num_psnr_trials', type=int, default=3, help='Number of times to complete test letters for Average PSNR calculations.')
@@ -333,14 +332,10 @@ with tf.Session(config=config) as sess:
         # if just generate, print out samples and quit
         if args.just_gen:
             # save results
-            with open(os.path.join(args.save_dir,'generated_images_{}{}.pkl'.format(int(datetime.now().timestamp()), args.suffix)),'wb') as f:
+            with open(os.path.join(args.save_dir,'letter_completions_{:03d}{}.pkl'.format(int(datetime.now().timestamp())%1000)),'wb') as f:
                 pkl.dump({'gen_data':gen_data, 'size':test_data.size},f)
             break
-        else:
-            # save results
-            with open(os.path.join(args.save_dir,'results_{}{}.pkl'.format(run, args.suffix)),'wb') as f:
-                pkl.dump({'gen_data':gen_data, 'size':test_data.size},f)
-        
+
         # calculate mean average psnr
         mses = []
         for sample_x, x, _, _, _ in gen_data:
