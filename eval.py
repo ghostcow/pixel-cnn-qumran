@@ -51,7 +51,6 @@ parser.add_argument('--polyak_decay', type=float, default=0.9995, help='Exponent
 parser.add_argument('-j', '--just_gen', dest='just_gen', action='store_true', help='Just generate samples without training.')
 parser.add_argument('-u', '--single_angle', dest='single_angle', action='store_true', help='Test samples of one orientation only.')
 parser.add_argument('-v', '--adaptive_rotation', dest='adaptive_rotation', action='store_true', help='Adaptive rotation (for 8-way single model)')
-parser.add_argument('-y', '--test_padding', dest='test_padding', action='store_true', help='Pad test set so num samples is divisible by batch size')
 parser.add_argument('--num_psnr_trials', type=int, default=3, help='Number of times to complete test letters for Average PSNR calculations.')
 # reproducibility
 parser.add_argument('-s', '--seed', type=int, default=1, help='Random seed to use')
@@ -67,7 +66,7 @@ tf.set_random_seed(args.seed)
 DataLoader = {'letters':letters_data.DataLoader}[args.data_set]
 test_data = DataLoader(args.data_dir, 'test', args.batch_size * args.nr_gpu,
                        shuffle=False, return_labels=args.class_conditional,
-                       rotation=args.rotation, single_angle=args.single_angle, pad=args.test_padding)
+                       rotation=args.rotation, single_angle=args.single_angle, pad=True)
 if test_data.size == 0:
     print('Nothing to evaluate, test_data size is 0.')
     sys.exit(0)
@@ -332,7 +331,7 @@ with tf.Session(config=config) as sess:
         # if just generate, print out samples and quit
         if args.just_gen:
             # save results
-            with open(os.path.join(args.save_dir,'letter_completions_{:03d}{}.pkl'.format(int(datetime.now().timestamp())%1000)),'wb') as f:
+            with open(os.path.join(args.data_dir,'letter_completions_orientation_{}.pkl'.format(args.rotation)),'wb') as f:
                 pkl.dump({'gen_data':gen_data, 'size':test_data.size},f)
             break
 
@@ -359,6 +358,6 @@ with tf.Session(config=config) as sess:
         print("mean average psnr: {}, std over averages: {}, mean psnr std: {}, std over stds: {}".format(
                 np.mean(average_psnrs), np.std(average_psnrs),
                 np.mean(std_psnrs), np.std(std_psnrs)))
-        
-    print('done in {} minutes.'.format((time.time() - begin)/60))
+
+    print('done in {:.2f} minutes.'.format((time.time() - begin)/60))
     sys.stdout.flush()

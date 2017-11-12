@@ -13,7 +13,7 @@ def load(data_dir, subset='train'):
     elif subset=='val':
         return load_data(os.path.join(data_dir, 'val'))
     elif subset=='test':
-        return load_data(os.path.join(data_dir, 'test'))
+        return load_data(data_dir)
     else:
         raise NotImplementedError('subset should be either train or test')
 
