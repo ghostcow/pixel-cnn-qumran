@@ -22,8 +22,6 @@ from scipy.ndimage import measurements as me
 import pixel_cnn_pp.nn as nn
 import pixel_cnn_pp.plotting as plotting
 from pixel_cnn_pp.model import model_spec
-import data.cifar10_data as cifar10_data
-import data.imagenet_data as imagenet_data
 import data.letters_data as letters_data
 
 # -----------------------------------------------------------------------------
@@ -269,7 +267,9 @@ min_test_loss = np.inf
 test_loss_gen = np.inf
 lr = args.learning_rate
 
-with tf.Session() as sess:
+config = tf.ConfigProto()
+config.gpu_options.per_process_gpu_memory_fraction = max(min(args.gpu_mem_frac, 1.0), 0.0)
+with tf.Session(config=config) as sess:
     begin = time.time()
 
     # init
