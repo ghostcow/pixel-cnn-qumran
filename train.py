@@ -232,6 +232,8 @@ lr = args.learning_rate
 
 config = tf.ConfigProto()
 config.gpu_options.per_process_gpu_memory_fraction = max(min(args.gpu_mem_frac, 1.0), 0.0)
+# config.intra_op_parallelism_threads=1
+# config.inter_op_parallelism_threads=1
 
 # early stopping params
 patience = 150
@@ -245,7 +247,7 @@ stop_training = False
 with tf.Session(config=config) as sess:
     for epoch in range(args.max_epochs):
         begin = time.time()
-        
+
         # init
         if epoch == 0:
             # manually retrieve exactly init_batch_size examples
@@ -257,6 +259,7 @@ with tf.Session(config=config) as sess:
             if args.load_params:
                 ckpt_file = args.save_dir + '/params_' + args.data_set + '.ckpt'
                 print('restoring parameters from', ckpt_file)
+                import ipdb; ipdb.set_trace()
                 saver.restore(sess, ckpt_file)
 
         # train for one epoch

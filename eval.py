@@ -33,7 +33,6 @@ parser.add_argument('-i', '--data_dir', type=str, default='data/letters_data', h
 parser.add_argument('-o', '--save_dir', type=str, default='data/letters_data/checkpoints', help='Location for parameter checkpoints and samples')
 parser.add_argument('-d', '--data_set', type=str, default='letters', help='Can be letters')
 parser.add_argument('-r', '--load_params', dest='load_params', action='store_true', help='Restore training from previous model checkpoint?')
-parser.add_argument('--gpu_mem_frac', type=float, default=1.0, help='Limit GPU memory to this fraction of itself during session')
 # model
 parser.add_argument('-q', '--nr_resnet', type=int, default=5, help='Number of residual blocks per stage of the model')
 parser.add_argument('-n', '--nr_filters', type=int, default=160, help='Number of filters to use across the model. Higher = larger model.')
@@ -270,10 +269,7 @@ min_test_loss = np.inf
 test_loss_gen = np.inf
 lr = args.learning_rate
 
-config = tf.ConfigProto()
-config.gpu_options.per_process_gpu_memory_fraction = max(min(args.gpu_mem_frac, 1.0), 0.0)
-
-with tf.Session(config=tf.ConfigProto(gpu_options=config)) as sess:
+with tf.Session() as sess:
     begin = time.time()
 
     # init
