@@ -292,7 +292,7 @@ with tf.Session(config=config) as sess:
     sys.stdout.flush()
     average_psnrs=[]
     std_psnrs=[]
-    for run in range(args.num_psnr_trials):
+    for run in range(args.nr_iters):
         gen_data = []
         # generate samples from the model
         for data in tqdm(test_data):
