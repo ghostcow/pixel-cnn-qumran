@@ -22,16 +22,14 @@ from scipy.ndimage import measurements as me
 import pixel_cnn_pp.nn as nn
 import pixel_cnn_pp.plotting as plotting
 from pixel_cnn_pp.model import model_spec
-import data.cifar10_data as cifar10_data
-import data.imagenet_data as imagenet_data
 import data.letters_data as letters_data
 
 # -----------------------------------------------------------------------------
 parser = argparse.ArgumentParser()
 # data I/O
-parser.add_argument('-i', '--data_dir', type=str, default='data/letters_data', help='Location for the dataset')
-parser.add_argument('-o', '--save_dir', type=str, default='data/letters_data/checkpoints', help='Location for parameter checkpoints and samples')
-parser.add_argument('-d', '--data_set', type=str, default='letters', help='Can be either cifar|imagenet|letters')
+parser.add_argument('-i', '--data_dir', type=str, default='data/qumran_test_letters', help='Location for the dataset')
+parser.add_argument('-o', '--checkpoint_dir', type=str, default='data/checkpoints', help='Location for parameter checkpoints and samples')
+parser.add_argument('-d', '--data_set', type=str, default='letters', help='Can be letters')
 parser.add_argument('-r', '--load_params', dest='load_params', action='store_true', help='Restore training from previous model checkpoint?')
 # model
 parser.add_argument('-q', '--nr_resnet', type=int, default=5, help='Number of residual blocks per stage of the model')
@@ -39,22 +37,21 @@ parser.add_argument('-n', '--nr_filters', type=int, default=160, help='Number of
 parser.add_argument('-m', '--nr_logistic_mix', type=int, default=10, help='Number of logistic components in the mixture. Higher = more flexible model')
 parser.add_argument('-z', '--resnet_nonlinearity', type=str, default='concat_elu', help='Which nonlinearity to use in the ResNet layers. One of "concat_elu", "elu", "relu" ')
 parser.add_argument('-c', '--class_conditional', dest='class_conditional', action='store_true', help='Condition generative model on labels?')
-parser.add_argument('-f', '--rotation', type=int, default=None, help='Force uniform rotation of angle n*90 degrees counter-clockwise.')
+parser.add_argument('-f', '--rotation', type=int, default=None, help='Force uniform rotation and reflection to specific orientation.')
 # optimization
 parser.add_argument('-l', '--learning_rate', type=float, default=0.001, help='Base learning rate')
 parser.add_argument('-e', '--lr_decay', type=float, default=0.999995, help='Learning rate decay, applied every step of the optimization')
 parser.add_argument('-b', '--batch_size', type=int, default=12, help='Batch size during training per GPU')
 parser.add_argument('-a', '--init_batch_size', type=int, default=100, help='How much data to use for data-dependent initialization.')
 parser.add_argument('-p', '--dropout_p', type=float, default=0.5, help='Dropout strength (i.e. 1 - keep_prob). 0 = No dropout, higher = more dropout.')
-parser.add_argument('-x', '--max_epochs', type=int, default=601, help='How many epochs to run in total?')
 parser.add_argument('-g', '--nr_gpu', type=int, default=4, help='How many GPUs to distribute the training across?')
+parser.add_argument('--gpu_mem_frac', type=float, default=1.0, help='Limit GPU memory to this fraction of itself during session')
 # evaluation
 parser.add_argument('--polyak_decay', type=float, default=0.9995, help='Exponential decay rate of the sum of previous model iterates during Polyak averaging')
-parser.add_argument('-j', '--just_gen', dest='just_gen', action='store_true', help='Just generate samples without training.')
-parser.add_argument('-u', '--single_ar', dest='single_ar', action='store_true', help='Test samples of one orientation only.')
-parser.add_argument('-w', '--suffix', type=str, default='', help='Suffix for saved results')
-parser.add_argument('-v', '--adaptive_rotation', dest='adaptive_rotation', action='store_true', help='Adaptive rotation (for 4-way single model)')
-parser.add_argument('-y', '--test_padding', dest='test_padding', action='store_true', help='Pad test set so num samples is divisible by batch size')
+parser.add_argument('-u', '--single_angle', dest='single_angle', action='store_true', help='Test samples of one orientation only.')
+parser.add_argument('-v', '--adaptive_rotation', dest='adaptive_rotation', action='store_true', help='Adaptive rotation (for 8-way single model)')
+parser.add_argument('--nr_iters', type=int, default=1, help='Number of times to complete test letters.')
+parser.add_argument('--calc_psnr', action='store_true', help='Calculate Mean Average PSNR also.')
 # reproducibility
 parser.add_argument('-s', '--seed', type=int, default=1, help='Random seed to use')
 args = parser.parse_args()
@@ -66,10 +63,10 @@ rng = np.random.RandomState(args.seed)
 tf.set_random_seed(args.seed)
 
 # initialize data loaders for train/test splits
-if args.data_set == 'imagenet' and args.class_conditional:
-    raise("We currently don't have labels for the small imagenet data set")
-DataLoader = {'cifar':cifar10_data.DataLoader, 'imagenet':imagenet_data.DataLoader, 'letters':letters_data.DataLoader}[args.data_set]
-test_data = DataLoader(args.data_dir, 'test', args.batch_size * args.nr_gpu, shuffle=False, return_labels=args.class_conditional, rotation=args.rotation, single_ar=args.single_ar, pad=args.test_padding)
+DataLoader = {'letters':letters_data.DataLoader}[args.data_set]
+test_data = DataLoader(args.data_dir, 'test', args.batch_size * args.nr_gpu,
+                       shuffle=False, return_labels=args.class_conditional,
+                       rotation=args.rotation, single_angle=args.single_angle, pad=True)
 if test_data.size == 0:
     print('Nothing to evaluate, test_data size is 0.')
     sys.exit(0)
@@ -136,7 +133,7 @@ def get_orientations(ms):
     for i, m in enumerate(ms):
         m = m[:,:,0]
         y,x = me.center_of_mass(m)
-        if np.isnan(x) or np.isnan(y): 
+        if np.isnan(x) or np.isnan(y):
             continue
         # center coordinates
         y -= 15.5
@@ -199,22 +196,24 @@ for i in range(args.nr_gpu):
     with tf.device('/gpu:%d' % i):
         gen_par = model(xs[i], hs[i], ema=ema, dropout_p=0, **model_opt)
         new_x_gen.append(nn.sample_from_discretized_mix_logistic(gen_par, args.nr_logistic_mix))
+
+
 def sample_from_model(sess, x_gen, y, masks):
-    
+
     x_gen = np.cast[np.float32]((x_gen - 127.5) / 127.5) # input to pixelCNN is scaled from uint8 [0,255] to float in range [-1,1]
     x_gen = np.split(x_gen, args.nr_gpu)
     masks = np.split(masks, args.nr_gpu)
-    
+
     if args.class_conditional:
         y = np.split(y, args.nr_gpu)
-    
+
     for yi in range(obs_shape[0]):
         for xi in range(obs_shape[1]):
             feed_dict = {xs[i]: x_gen[i] for i in range(args.nr_gpu)}
             if args.class_conditional:
                 feed_dict.update({ys[i]: y[i] for i in range(args.nr_gpu)})
             new_x_gen_np = sess.run(new_x_gen, feed_dict)
-            
+
             for i in range(args.nr_gpu):
                 x_gen[i][:,yi,xi,:] = new_x_gen_np[i][:,yi,xi,:]*(1-masks[i][:,yi,xi,:])+x_gen[i][:,yi,xi,:]*masks[i][:,yi,xi,:]
 
@@ -258,22 +257,24 @@ saver = tf.train.Saver()
 
 
 # //////////// perform evaluation //////////////
-if not os.path.exists(args.save_dir):
-    os.makedirs(args.save_dir)
+if not os.path.exists(args.checkpoint_dir):
+    os.makedirs(args.checkpoint_dir)
 print('starting evaluation')
 sys.stdout.flush()
 min_test_loss = np.inf
 test_loss_gen = np.inf
 lr = args.learning_rate
-gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8)
-with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
+
+config = tf.ConfigProto()
+config.gpu_options.per_process_gpu_memory_fraction = max(min(args.gpu_mem_frac, 1.0), 0.0)
+with tf.Session(config=config) as sess:
     begin = time.time()
 
     # init
     print('initializing the model...')
     sys.stdout.flush()
     if args.load_params:
-        ckpt_file = args.save_dir + '/params_' + args.data_set + '.ckpt'
+        ckpt_file = args.checkpoint_dir + '/params_' + args.data_set + '.ckpt'
         print('restoring parameters from', ckpt_file)
         saver.restore(sess, ckpt_file)
     else:
@@ -283,18 +284,18 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
     def print_samples(sample_x):
         img_tile = plotting.img_tile(sample_x[:int(np.floor(np.sqrt(args.batch_size*args.nr_gpu))**2)], aspect_ratio=1.0, border_color=1.0, stretch=True)
         plotting.plot_img(img_tile, title=args.data_set + ' samples')
-        plotting.plt.savefig(os.path.join(args.save_dir,'%s_sample%s.png' % (args.data_set, int(datetime.now().timestamp()))))
+        plotting.plt.savefig(os.path.join(args.checkpoint_dir,'%s_sample%s.png' % (args.data_set, int(datetime.now().timestamp()))))
         plotting.plt.close('all')
-    
+
 
     print('beginning tests...')
     sys.stdout.flush()
     average_psnrs=[]
     std_psnrs=[]
-    for run in range(10):
+    for run in tqdm(range(args.nr_iters)):
         gen_data = []
         # generate samples from the model
-        for data in tqdm(test_data):
+        for data in test_data:
             # rotate/flip data for model, and create appropriate labels
             # rotation must be None to disable loading only specifically oriented samples
             if args.adaptive_rotation and args.rotation is None:
@@ -316,41 +317,45 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
                 x[j] = flip_rotate(x[j], -y[j])
                 m[j] = flip_rotate(m[j], -y[j])
                 colored_x[j] = flip_rotate(colored_x[j], -y[j])
-            gen_data.append((sample_x, x, m, sample_prob, colored_x))
 
-        # if just generate, print out samples and quit
-        if args.just_gen:
-            # save results
-            with open(os.path.join(args.save_dir,'generated_images_{}{}.pkl'.format(int(datetime.now().timestamp()), args.suffix)),'wb') as f:
-                pkl.dump({'gen_data':gen_data, 'size':test_data.size},f)
-            break
-        else:
-            # save results
-            with open(os.path.join(args.save_dir,'results_{}{}.pkl'.format(run, args.suffix)),'wb') as f:
-                pkl.dump({'gen_data':gen_data, 'size':test_data.size},f)
-        
-        # calculate mean average psnr
-        mses = []
-        for sample_x, x, _, _, _ in gen_data:
-            # calculate per-picture psnr vectorized
-            #change to 0..255
-            a = np.round(127.5 * sample_x + 127.5)
-            b = x
-            mse = np.sum( np.power(a-b,2), axis=(1,2,3) ) / np.prod( a.shape[1:] ) # ignore batch size
-            mses.append(mse)
-        # discard all samples from padding
-        mse = np.concatenate(mses)[:test_data.size]
-        psnrs = 20 * ( np.log10(255) - np.log10( np.sqrt(mse) ) )
-        psnr_avg, psnr_std = np.mean(psnrs), np.std(psnrs)
-        print("average psnr run {}: {}, std: {}".format(run, psnr_avg, psnr_std))
-        average_psnrs.append(psnr_avg)
-        std_psnrs.append(psnr_std)
-        sys.stdout.flush()
+            '''
+            Save batch of letter completions in the following format:
+            1. Input images (x)
+            2. Letter completions (sample_x)
+            3. Completions with the completed area colored (colored_x)
+            4. Input masks (m)
+            5. Log probabilities of completions (sample_prob)
+            '''
+            gen_data.append((x, sample_x, colored_x, m, sample_prob))
+
+        # Note: the number of samples sums to 'test_data.size'. Anything else is due to padding and is to be ignored
+        with open(os.path.join(args.data_dir,'letter_completions_orientation_{}_iter{:02d}.pkl'.format(args.rotation, run+1)),'wb') as f:
+            pkl.dump({'gen_data':gen_data, 'size':test_data.size},f)
+
+        if args.calc_psnr:
+            # calculate mean average psnr
+            mses = []
+            for x, sample_x, _, _, _ in gen_data:
+                # calculate per-picture psnr vectorized
+                #change to 0..255
+                a = np.round(127.5 * sample_x + 127.5)
+                b = x
+                mse = np.sum( np.power(a-b,2), axis=(1,2,3) ) / np.prod( a.shape[1:] ) # ignore batch size
+                mses.append(mse)
+            # discard all samples from padding
+            mse = np.concatenate(mses)[:test_data.size]
+            psnrs = 20 * ( np.log10(255) - np.log10( np.sqrt(mse) ) )
+            psnr_avg, psnr_std = np.mean(psnrs), np.std(psnrs)
+            print("average psnr run {}: {}, std: {}".format(run, psnr_avg, psnr_std))
+            average_psnrs.append(psnr_avg)
+            std_psnrs.append(psnr_std)
+            sys.stdout.flush()
+
     # show stats summary
     if len(average_psnrs)>0:
         print("mean average psnr: {}, std over averages: {}, mean psnr std: {}, std over stds: {}".format(
                 np.mean(average_psnrs), np.std(average_psnrs),
                 np.mean(std_psnrs), np.std(std_psnrs)))
-        
-    print('done in {} minutes.'.format((time.time() - begin)/60))
+
+    print('done in {:.2f} minutes.'.format((time.time() - begin)/60))
     sys.stdout.flush()

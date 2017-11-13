@@ -3,6 +3,7 @@ function Bench=build_prepare2 (docs,sParam,pagesDir)
 Bench.PagesNumber=length(docs);
 Bench.PagesName = cell( Bench.PagesNumber,1);
 Bench.BWName = cell( Bench.PagesNumber,1);
+Bench.Names = cell( Bench.PagesNumber, 1);
 Bench.ccPixels = cell( Bench.PagesNumber,1);
 Bench.ccBox = cell( Bench.PagesNumber,1);
 Bench.ccCentroid = cell( Bench.PagesNumber,1);
@@ -13,7 +14,9 @@ BW_dir='BW';
 
 num_proccess = Bench.PagesNumber;
 for i=1:num_proccess
-    
+
+    Bench.Names{i} = docs(i).Name;
+
     img2=docs(i).Im;
     if isempty(img2)
         continue
@@ -54,7 +57,7 @@ for i=1:num_proccess
 
     %save the new BW page
     imwrite(newBW,Pages_path);
-    imshow(newBW)
+    %imshow(newBW)
     Bench.PagesName{i} = Pages_path;
 
     % for debugging:
