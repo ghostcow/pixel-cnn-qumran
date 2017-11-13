@@ -257,8 +257,8 @@ saver = tf.train.Saver()
 
 
 # //////////// perform evaluation //////////////
-if not os.path.exists(args.save_dir):
-    os.makedirs(args.save_dir)
+if not os.path.exists(args.checkpoint_dir):
+    os.makedirs(args.checkpoint_dir)
 print('starting evaluation')
 sys.stdout.flush()
 min_test_loss = np.inf
@@ -274,7 +274,7 @@ with tf.Session(config=config) as sess:
     print('initializing the model...')
     sys.stdout.flush()
     if args.load_params:
-        ckpt_file = args.save_dir + '/params_' + args.data_set + '.ckpt'
+        ckpt_file = args.checkpoint_dir + '/params_' + args.data_set + '.ckpt'
         print('restoring parameters from', ckpt_file)
         saver.restore(sess, ckpt_file)
     else:
@@ -284,7 +284,7 @@ with tf.Session(config=config) as sess:
     def print_samples(sample_x):
         img_tile = plotting.img_tile(sample_x[:int(np.floor(np.sqrt(args.batch_size*args.nr_gpu))**2)], aspect_ratio=1.0, border_color=1.0, stretch=True)
         plotting.plot_img(img_tile, title=args.data_set + ' samples')
-        plotting.plt.savefig(os.path.join(args.save_dir,'%s_sample%s.png' % (args.data_set, int(datetime.now().timestamp()))))
+        plotting.plt.savefig(os.path.join(args.checkpoint_dir,'%s_sample%s.png' % (args.data_set, int(datetime.now().timestamp()))))
         plotting.plt.close('all')
 
 
