@@ -292,10 +292,10 @@ with tf.Session(config=config) as sess:
     sys.stdout.flush()
     average_psnrs=[]
     std_psnrs=[]
-    for run in range(args.nr_iters):
+    for run in tqdm(range(args.nr_iters)):
         gen_data = []
         # generate samples from the model
-        for data in tqdm(test_data):
+        for data in test_data:
             # rotate/flip data for model, and create appropriate labels
             # rotation must be None to disable loading only specifically oriented samples
             if args.adaptive_rotation and args.rotation is None:
