@@ -11,7 +11,7 @@ To use this package one must have Python 3, numpy and Tensorflow 1.0 installed (
 
 ## How to train models for the Adaptive Orientation experiment
 Let `$ROOT` be the root directory `pixel-cnn-qumran`.
-1. Download `qumran_dataset_v1.tar.gz` to `$ROOT/data` and extract the files.
+1. Download [qumran_dataset_v1.tar.gz](https://drive.google.com/open?id=1gQlAP77kFxZFZnKYfXAWtJCdhv4ALUlm) to `$ROOT/data` and extract the files.
 2. Run `./train.sh $i` for `$i` in `{0,1,2,3,4,5,6,7}`.
 
 ## How to use trained models to complete letters from the test set
