@@ -1,6 +1,9 @@
 
 # Qumran Letter Restoration by Rotation and Reflection Modified PixelCNN
 
+![Some BW samples](data/bw-comp.png) ![The same samples from before, with color coding of completion](data/color-comp.png)
+
+
 This is a fork of OpenAI's Implementation of [PixelCNN++](https://openreview.net/pdf?id=BJrFC6ceg), modified to run the experiments from the 'Qumran Letter Restoration' paper.
 
 ## Data
